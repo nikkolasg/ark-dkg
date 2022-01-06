@@ -76,20 +76,14 @@ mod tests {
     use ark_bw6_761::BW6_761 as P;
     use ark_ec::ProjectiveCurve;
     use ark_groth16::Groth16;
-    use ark_snark::SNARK;
+    use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::One;
 
     #[test]
     fn poly() {
-        assert_eq!(
-            <E as PairingEngine>::G1Projective::prime_subgroup_generator(),
-            <E as PairingEngine>::G1Projective::prime_subgroup_generator(),
-        );
-
         let circuit = PolyCircuit::<E, EV>::new(<E as PairingEngine>::Fr::one());
         let mut rng = ark_std::test_rng();
-        let (pk, vk) =
-            Groth16::<P>::circuit_specific_setup(PolyCircuit::<E, EV>::empty(), &mut rng).unwrap();
+        let (pk, vk) = Groth16::<P>::setup(PolyCircuit::<E, EV>::empty(), &mut rng).unwrap();
         let proof = Groth16::prove(&pk, circuit, &mut rng).unwrap();
         let valid_proof = Groth16::verify(&vk, &vec![], &proof).unwrap();
         assert!(valid_proof);
