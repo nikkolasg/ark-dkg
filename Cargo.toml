@@ -12,7 +12,7 @@ ark-std = { version = "^0.3.0", default-features = false }
 ark-snark = { version = "^0.3.0", default-features = false }
 ark-r1cs-std = { version = "^0.3.0", default-features = false }
 ark-relations = { version = "^0.3.0", default-features = false }
-ark-bls12-377 = { version = "^0.3.0", features = ["r1cs"] }
+ark-bls12-377 = { version = "^0.3.0", features = ["r1cs","curve"] }
 ark-bw6-761 = { version = "^0.3.0"  }
 ark-groth16 = { version = "^0.3.0" }
 
