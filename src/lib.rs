@@ -78,11 +78,12 @@ mod tests {
     use ark_groth16::Groth16;
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::One;
+    use ark_std::UniformRand;
 
     #[test]
     fn poly() {
-        let circuit = PolyCircuit::<E, EV>::new(<E as PairingEngine>::Fr::one());
         let mut rng = ark_std::test_rng();
+        let circuit = PolyCircuit::<E, EV>::new(<E as PairingEngine>::Fr::rand(&mut rng));
         let (pk, vk) = Groth16::<P>::setup(PolyCircuit::<E, EV>::empty(), &mut rng).unwrap();
         let proof = Groth16::prove(&pk, circuit, &mut rng).unwrap();
         let valid_proof = Groth16::verify(&vk, &vec![], &proof).unwrap();
