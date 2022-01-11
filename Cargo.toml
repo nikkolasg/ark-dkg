@@ -15,6 +15,7 @@ ark-relations = { version = "^0.3.0", default-features = false }
 ark-bls12-377 = { version = "^0.3.0", features = ["r1cs","curve"] }
 ark-bw6-761 = { version = "^0.3.0"  }
 ark-groth16 = { version = "^0.3.0" }
+rayon = "^1.5.1"
 
 [features]
 default = [ "std", "parallel" ]
