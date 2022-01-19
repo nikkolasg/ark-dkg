@@ -1,4 +1,4 @@
-use ark_ec::ProjectiveCurve;
+use ark_ec::{AffineCurve, ProjectiveCurve};
 use ark_ff::{fields::Field, BitIteratorLE, PrimeField};
 use ark_r1cs_std::groups::CurveVar;
 use ark_r1cs_std::prelude::*;
@@ -9,8 +9,10 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use ark_std::vec::Vec;
 use ark_std::UniformRand;
+use std::ops::MulAssign;
 
-type ConstraintF<C> = <<C as ProjectiveCurve>::BaseField as Field>::BasePrimeField;
+use ark_bls12_377::{constraints::*, *};
+type ConstraintF = <<G1Affine as AffineCurve>::BaseField as Field>::BasePrimeField;
 // ElGamal encryption E = { g^r, H((g^x)^r) + secret }
 // Circuit will do the following
 //  - take the random "r" and multiply by the public key
@@ -19,32 +21,27 @@ type ConstraintF<C> = <<C as ProjectiveCurve>::BaseField as Field>::BasePrimeFie
 //  - take the random "r" and multiply by the generator
 //  - verify the result is equal the first part of the encryption given as
 //  public input
-pub struct EncryptCircuit<C: ProjectiveCurve, V: CurveVar<C, C::BaseField>> {
-    r: Vec<C::ScalarField>,
-    pub_keys: Vec<C>,
-    enc: Vec<C::ScalarField>,
-    grs: Vec<C>,
-    _curve_gadget: PhantomData<V>,
+pub struct EncryptCircuit {
+    r: Vec<Fr>,
+    pub_keys: Vec<G1Projective>,
+    enc: Vec<Fr>,
+    grs: Vec<G1Projective>,
 }
 
-impl<C, V> EncryptCircuit<C, V>
-where
-    C: ProjectiveCurve,
-    V: CurveVar<C, C::BaseField>,
-{
+impl EncryptCircuit {
     pub fn new<R: Rng>(
-        msgs: Vec<C::ScalarField>,
-        pub_keys: Vec<C>,
-        params: &PoseidonParameters<ConstraintF<C>>,
+        msgs: Vec<Fr>,
+        pub_keys: Vec<G1Projective>,
+        params: &PoseidonParameters<ConstraintF>,
         rng: &mut R,
     ) -> Self {
         let rs = (0..pub_keys.len())
-            .map(|_| C::ScalarField::rand(rng))
+            .map(|_| Fr::rand(rng))
             .collect::<Vec<_>>();
         let grs = rs
             .iter()
             .map(|r| {
-                let mut g = C::prime_subgroup_generator();
+                let mut g = G1Projective::prime_subgroup_generator();
                 g.mul_assign(r.clone());
                 g
             })
@@ -63,11 +60,11 @@ where
             .iter()
             .zip(msgs.iter())
             .map(|(pr, msg)| {
-                let mut sponge = PoseidonSponge::<ConstraintF<C>>::new(params);
+                let mut sponge = PoseidonSponge::<ConstraintF>::new(params);
                 let pra = pr.into_affine();
-                sponge.absorb(pra.x);
-                let dh = sponge.squeeze_field_elements::<C::ScalarField>(1)[0];
-                let dh = C::ScalarField::rand(rng);
+                sponge.absorb(&pra.x);
+                let dh = sponge.squeeze_field_elements::<Fr>(1)[0];
+                let dh = Fr::rand(rng);
                 dh + msg
             })
             .collect::<Vec<_>>();
@@ -76,23 +73,15 @@ where
             pub_keys: pub_keys,
             enc: enc,
             grs: grs,
-            _curve_gadget: PhantomData,
         }
     }
 }
 
-impl<C, V> ConstraintSynthesizer<C::BaseField> for EncryptCircuit<C, V>
-where
-    C: ProjectiveCurve,
-    V: CurveVar<C, C::BaseField>,
-{
-    fn generate_constraints(
-        self,
-        cs: ConstraintSystemRef<C::BaseField>,
-    ) -> Result<(), SynthesisError> {
-        let g = V::new_variable_omit_prime_order_check(
+impl ConstraintSynthesizer<Fq> for EncryptCircuit {
+    fn generate_constraints(self, cs: ConstraintSystemRef<Fq>) -> Result<(), SynthesisError> {
+        let g = G1Var::new_variable_omit_prime_order_check(
             ark_relations::ns!(cs, "generator"),
-            || Ok(C::prime_subgroup_generator()),
+            || Ok(G1Projective::prime_subgroup_generator()),
             AllocationMode::Input,
         )?;
         // verify consistency with grs
@@ -109,7 +98,7 @@ where
             .grs
             .into_iter()
             .map(|gr| {
-                V::new_variable_omit_prime_order_check(
+                G1Var::new_variable_omit_prime_order_check(
                     ark_relations::ns!(cs, "gr"),
                     || Ok(gr),
                     AllocationMode::Input,
@@ -127,9 +116,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_bls12_377::{constraints::*, *};
     //use ark_bw6_761::BW6_761 as P;
-    //use ark_ec::ProjectiveCurve;
+    //use ark_ec::AffineCurve;
     //use ark_groth16::Groth16;
     use ark_relations::r1cs::ConstraintSystem;
     //use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
@@ -139,15 +127,12 @@ mod tests {
     fn encrypt() {
         let mut rng = ark_std::test_rng();
         let n = 5;
-        let secrets = (0..n)
-            .map(|_| <G1Projective as ProjectiveCurve>::ScalarField::rand(&mut rng))
-            .collect::<Vec<_>>();
+        let secrets = (0..n).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
         let pubkeys = (0..n)
             .map(|_| G1Projective::rand(&mut rng))
             .collect::<Vec<_>>();
         let params = crate::poseidon::get_bls12377_fq_params(2);
-        let circuit =
-            EncryptCircuit::<G1Projective, G1Var>::new(secrets, pubkeys, params, &mut rng);
+        let circuit = EncryptCircuit::new(secrets, pubkeys, &params, &mut rng);
         let cs = ConstraintSystem::<Fq>::new_ref();
         circuit.generate_constraints(cs.clone()).unwrap();
         println!("Num constraints: {}", cs.num_constraints());

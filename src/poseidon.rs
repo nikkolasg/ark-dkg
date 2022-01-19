@@ -1,7 +1,7 @@
+use crate::parameters::*;
 use ark_bls12_377::{constraints::PairingVar as EV, Bls12_377 as E, Fq, FqParameters};
 use ark_sponge::poseidon::{PoseidonParameters, PoseidonSponge};
-
-struct params {}
+use std::str::FromStr;
 
 // can't use the following because 0.3.0 doesn't have this struct
 /*impl PoseidonDefaultParameters for params {*/
@@ -27,11 +27,7 @@ struct params {}
 
 // returns optimized for constraints
 pub fn get_bls12377_fq_params(rate: usize) -> PoseidonParameters<Fq> {
-    use std::fs;
-    use std::str::FromStr;
-    let j = fs::read_to_string("bls12-377-fq-rate2-constraints.json").unwrap();
-    let jparams = json::parse(&j).unwrap();
-    let arks = jparams["ark"]
+    let arks = p1["ark"]
         .members()
         .map(|ark| {
             ark.members()
@@ -39,7 +35,7 @@ pub fn get_bls12377_fq_params(rate: usize) -> PoseidonParameters<Fq> {
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let mds = jparams["mds"]
+    let mds = p1["mds"]
         .members()
         .map(|m| {
             m.members()
@@ -48,9 +44,9 @@ pub fn get_bls12377_fq_params(rate: usize) -> PoseidonParameters<Fq> {
         })
         .collect::<Vec<_>>();
     PoseidonParameters::new(
-        jparams["full_rounds"].as_u32().unwrap(),
-        jparams["partial_rounds"].as_u32().unwrap(),
-        jparams["alpha"].as_u64().unwrap(),
+        p1["full_rounds"].as_u32().unwrap(),
+        p1["partial_rounds"].as_u32().unwrap(),
+        p1["alpha"].as_u64().unwrap(),
         mds,
         arks,
     )
