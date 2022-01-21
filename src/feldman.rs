@@ -20,14 +20,14 @@ use std::ops::MulAssign;
 //  * Some operations are efficient because of using BLS12377 basefield for
 //  group operations
 #[derive(Clone)]
-pub struct PolyCircuit<E: PairingEngine, P: PairingVar<E>> {
+pub struct FeldmanCommit<E: PairingEngine, P: PairingVar<E>> {
     g: E::G1Projective,         // generator
     pubs: Vec<E::G1Projective>, // public input
     coeffs: Vec<E::Fr>,         // private input
     _pairing_gadget: PhantomData<P>,
 }
 
-impl<E, P> PolyCircuit<E, P>
+impl<E, P> FeldmanCommit<E, P>
 where
     E: PairingEngine,
     P: PairingVar<E>,
@@ -51,7 +51,7 @@ where
     }
 }
 
-impl<E, P> ConstraintSynthesizer<E::Fq> for PolyCircuit<E, P>
+impl<E, P> ConstraintSynthesizer<E::Fq> for FeldmanCommit<E, P>
 where
     E: PairingEngine,
     P: PairingVar<E>,
@@ -103,13 +103,13 @@ mod tests {
         let secrets = (0..n)
             .map(|_| <E as PairingEngine>::Fr::rand(&mut rng))
             .collect::<Vec<_>>();
-        let circuit = PolyCircuit::<E, EV>::new(secrets.clone());
+        let circuit = FeldmanCommit::<E, EV>::new(secrets.clone());
         let cs = ConstraintSystem::<<E as PairingEngine>::Fq>::new_ref();
         circuit.generate_constraints(cs.clone()).unwrap();
         println!("Num constraints: {}", cs.num_constraints());
         assert!(cs.is_satisfied().unwrap());
-        /*let circuit2 = PolyCircuit::<E, EV>::new(secrets.clone()); // why can't I clne :(*/
-        //let circuit3 = PolyCircuit::<E, EV>::new(secrets); // why can't I clne :(
+        /*let circuit2 = FeldmanCommit::<E, EV>::new(secrets.clone()); // why can't I clne :(*/
+        //let circuit3 = FeldmanCommit::<E, EV>::new(secrets); // why can't I clne :(
         //let (pk, vk) = Groth16::<P>::setup(circuit2, &mut rng).unwrap();
         //let proof = Groth16::prove(&pk, circuit3, &mut rng).unwrap();
         //let valid_proof = Groth16::verify(&vk, &vec![], &proof).unwrap();
