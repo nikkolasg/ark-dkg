@@ -88,3 +88,42 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_bls12_377::{constraints::PairingVar as IV, Bls12_377 as I, Fr};
+    use ark_bw6_761::BW6_761 as O;
+    use ark_ec::ProjectiveCurve;
+    use ark_groth16::Groth16;
+    use ark_relations::r1cs::ConstraintSystem;
+    use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
+    use ark_std::UniformRand;
+
+    #[test]
+    fn dkg() {
+        let mut rng = ark_std::test_rng();
+        let degree = 50;
+        let n = degree * 2;
+        let secret = Fr::rand(&mut rng);
+        let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
+        // create pk, vk for inner proof
+        let null_coeffs = (0..degree + 1).map(|_| Fr::zero()).collect::<Vec<_>>();
+        let pe = PolyEvaluator::new(null_coeffs, ids.clone());
+        let (pk, vk) = Groth16::<I>::setup(pe, &mut rng).unwrap();
+
+        //
+        let config = DKGConfig {
+            secret: secret,
+            threshold: degree,
+            ids: ids,
+            inner_pk: pk,
+            inner_vk: vk,
+        };
+        let circuit = DKGCircuit::<O, I, IV>::new(config, &mut rng).unwrap();
+        let cs = ConstraintSystem::<O::Fq>::new_ref();
+        circuit.generate_constraints(cs.clone()).unwrap();
+        println!("Num constraints: {}", cs.num_constraints());
+        assert!(cs.is_satisfied().unwrap());
+    }
+}
