@@ -70,19 +70,20 @@ where
                 <I as PairingEngine>::Fq,
                 Groth16<I>,
             >>::InputVar::new_input(ns!(cs, "inner inputs"), || Ok(self.pub_inputs))?;
-        let proof_var = <Groth16VerifierGadget<I, IV> as SNARKGadget<
-            <I as PairingEngine>::Fr,
-            <I as PairingEngine>::Fq,
-            Groth16<I>,
-        >>::ProofVar::new_input(ns!(cs, "inner proof"), || Ok(self.proof))?;
+        let proof_var =
+            <Groth16VerifierGadget<I, IV> as SNARKGadget<
+                <I as PairingEngine>::Fr,
+                <I as PairingEngine>::Fq,
+                Groth16<I>,
+            >>::ProofVar::new_input(ns!(cs, "inner proof"), || Ok(self.inner_proof))?;
         let vk_var = <Groth16VerifierGadget<I, IV> as SNARKGadget<
             <I as PairingEngine>::Fr,
             <I as PairingEngine>::Fq,
             Groth16<I>,
-        >>::PreparedVerifyingKey::new_input(ns!(cs, "inner proof"), || {
-            Ok(self.conf.inner_vk)
-        })?;
-        Groth16::<I>::verify_with_processed_vk(&vk_var, &inputs_var, &proof_var)?
+        >>::ProcessedVerifyingKeyVar::new_input(
+            ns!(cs, "inner proof"), || Ok(self.conf.inner_vk)
+        )?;
+        Groth16VerifierGadget::<I, IV>::verify_with_processed_vk(&vk_var, &inputs_var, &proof_var)?
             .enforce_equal(&Boolean::constant(true))?;
         Ok(())
     }
