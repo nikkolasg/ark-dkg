@@ -8,6 +8,7 @@ extern crate lazy_static;
 //mod encrypt;
 mod encrypt;
 mod eval_native;
+mod eval_nonnative;
 mod feldman;
 mod parameters;
 mod poseidon;

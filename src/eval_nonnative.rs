@@ -1,4 +1,5 @@
 use ark_ff::{BitIteratorLE, PrimeField};
+use ark_nonnative_field::NonNativeFieldVar;
 use ark_poly::Polynomial;
 use ark_poly::{polynomial::univariate::DensePolynomial, UVPolynomial};
 use ark_r1cs_std::{
@@ -28,30 +29,50 @@ where
         }
     }
 
-    pub fn check_evaluations(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
+    pub fn check_evaluations<F2: PrimeField>(
+        self,
+        cs: ConstraintSystemRef<F2>,
+    ) -> Result<(), SynthesisError> {
         let coeff_vars = self
             .poly
             .coeffs
             .iter()
-            .map(|ci| FpVar::new_input(ark_relations::ns!(cs, "coefi"), || Ok(ci)))
+            .map(|ci| {
+                NonNativeFieldVar::<F, F2>::new_input(ark_relations::ns!(cs, "coefi"), || Ok(ci))
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        let poly_var = DensePolynomialVar::from_coefficients_vec(coeff_vars);
         let evals = self
             .evals
             .iter()
-            .map(|e| FpVar::new_witness(ark_relations::ns!(cs, "xi"), || Ok(e)))
+            .map(|e| {
+                NonNativeFieldVar::<F, F2>::new_witness(ark_relations::ns!(cs, "xi"), || Ok(e))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let results = self
             .results
             .iter()
-            .map(|r| FpVar::new_witness(ark_relations::ns!(cs, "resi"), || Ok(r)))
+            .map(|r| {
+                NonNativeFieldVar::<F, F2>::new_witness(ark_relations::ns!(cs, "resi"), || Ok(r))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         for (xi, yi) in evals.iter().zip(results.iter()) {
-            let exp = poly_var.evaluate(xi)?;
+            let exp = poly_eval(&coeff_vars, xi)?;
             yi.enforce_equal(&exp)?;
         }
         Ok(())
     }
+}
+
+fn poly_eval<F: PrimeField, F2: PrimeField>(
+    coeffs: &[NonNativeFieldVar<F, F2>],
+    eval: &NonNativeFieldVar<F, F2>,
+) -> Result<NonNativeFieldVar<F, F2>, SynthesisError> {
+    let mut r = coeffs[coeffs.len() - 1].clone();
+    for ci in coeffs.iter().rev().skip(1) {
+        let rr = r * eval;
+        r = &rr + ci;
+    }
+    Ok(r)
 }
 
 impl<F> ConstraintSynthesizer<F> for PolyEvaluator<F>
@@ -70,9 +91,15 @@ mod tests {
     use ark_relations::r1cs::ConstraintSystem;
     use ark_std::UniformRand;
 
+    // test eval_nonnative::tests::nonnative_poly_eval has been running for over 60 seconds
+    // Degree of polynomial: 50
+    // Number of evaluation points: 99
+    // num constraints: 3387483
+    // test eval_nonnative::tests::nonnative_poly_eval ... ok
+
     #[test]
-    fn poly_eval() {
-        let degree = 500;
+    fn nonnative_poly_eval() {
+        let degree = 50;
         let n = degree * 2 - 1;
         let mut rng = ark_std::test_rng();
         let coeffs = (0..degree + 1)
