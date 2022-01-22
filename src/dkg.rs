@@ -88,6 +88,16 @@ where
         Ok(())
     }
 }
+impl<O, I, IV> ConstraintSynthesizer<O::Fr> for DKGCircuit<O, I, IV>
+where
+    O: PairingEngine,
+    I: PairingEngine<Fq = O::Fr>,
+    IV: PairingVar<I>,
+{
+    fn generate_constraints(self, cs: ConstraintSystemRef<O::Fr>) -> Result<(), SynthesisError> {
+        self.check_evaluation_proof(cs)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -99,6 +109,7 @@ mod tests {
     use ark_relations::r1cs::ConstraintSystem;
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::UniformRand;
+    use ark_std::Zero;
 
     #[test]
     fn dkg() {
@@ -111,6 +122,7 @@ mod tests {
         let null_coeffs = (0..degree + 1).map(|_| Fr::zero()).collect::<Vec<_>>();
         let pe = PolyEvaluator::new(null_coeffs, ids.clone());
         let (pk, vk) = Groth16::<I>::setup(pe, &mut rng).unwrap();
+        let pvk = Groth16::<I>::process_vk(&vk).unwrap();
 
         //
         let config = DKGConfig {
@@ -118,10 +130,10 @@ mod tests {
             threshold: degree,
             ids: ids,
             inner_pk: pk,
-            inner_vk: vk,
+            inner_vk: pvk,
         };
         let circuit = DKGCircuit::<O, I, IV>::new(config, &mut rng).unwrap();
-        let cs = ConstraintSystem::<O::Fq>::new_ref();
+        let cs = ConstraintSystem::<<O as PairingEngine>::Fr>::new_ref();
         circuit.generate_constraints(cs.clone()).unwrap();
         println!("Num constraints: {}", cs.num_constraints());
         assert!(cs.is_satisfied().unwrap());
