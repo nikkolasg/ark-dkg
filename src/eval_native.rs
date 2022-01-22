@@ -10,7 +10,7 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 pub struct PolyEvaluator<F: PrimeField> {
     poly: DensePolynomial<F>,
     evals: Vec<F>,
-    results: Vec<F>,
+    pub results: Vec<F>,
 }
 
 impl<F> PolyEvaluator<F>
@@ -27,7 +27,12 @@ where
             results: res,
         }
     }
-
+    pub fn public_inputs(&self) -> Vec<F> {
+        let mut pubs = self.poly.coeffs.clone();
+        pubs.append(&mut self.evals.clone());
+        pubs.append(&mut self.results.clone());
+        pubs
+    }
     pub fn check_evaluations(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         let coeff_vars = self
             .poly
@@ -36,15 +41,16 @@ where
             .map(|ci| FpVar::new_input(ark_relations::ns!(cs, "coefi"), || Ok(ci)))
             .collect::<Result<Vec<_>, _>>()?;
         let poly_var = DensePolynomialVar::from_coefficients_vec(coeff_vars);
+        // TODO - avoid that by just doing a range from 1 ... n
         let evals = self
             .evals
             .iter()
-            .map(|e| FpVar::new_witness(ark_relations::ns!(cs, "xi"), || Ok(e)))
+            .map(|e| FpVar::new_input(ark_relations::ns!(cs, "xi"), || Ok(e)))
             .collect::<Result<Vec<_>, _>>()?;
         let results = self
             .results
             .iter()
-            .map(|r| FpVar::new_witness(ark_relations::ns!(cs, "resi"), || Ok(r)))
+            .map(|r| FpVar::new_input(ark_relations::ns!(cs, "resi"), || Ok(r)))
             .collect::<Result<Vec<_>, _>>()?;
         for (xi, yi) in evals.iter().zip(results.iter()) {
             let exp = poly_var.evaluate(xi)?;

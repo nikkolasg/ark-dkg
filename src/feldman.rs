@@ -89,30 +89,32 @@ where
 mod tests {
     use super::*;
     use ark_bls12_377::{constraints::PairingVar as EV, Bls12_377 as E};
-    //use ark_bw6_761::BW6_761 as P;
-    //use ark_ec::ProjectiveCurve;
-    //use ark_groth16::Groth16;
+    use ark_bw6_761::BW6_761 as P;
+    use ark_ec::ProjectiveCurve;
+    use ark_groth16::Groth16;
     use ark_relations::r1cs::ConstraintSystem;
-    //use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
+    use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::UniformRand;
 
     #[test]
-    fn poly() {
+    fn feldman() {
         let mut rng = ark_std::test_rng();
         let n = 500;
         let secrets = (0..n)
             .map(|_| <E as PairingEngine>::Fr::rand(&mut rng))
             .collect::<Vec<_>>();
         let circuit = FeldmanCommit::<E, EV>::new(secrets.clone());
-        let cs = ConstraintSystem::<<E as PairingEngine>::Fq>::new_ref();
-        circuit.generate_constraints(cs.clone()).unwrap();
-        println!("Num constraints: {}", cs.num_constraints());
-        assert!(cs.is_satisfied().unwrap());
-        /*let circuit2 = FeldmanCommit::<E, EV>::new(secrets.clone()); // why can't I clne :(*/
-        //let circuit3 = FeldmanCommit::<E, EV>::new(secrets); // why can't I clne :(
-        //let (pk, vk) = Groth16::<P>::setup(circuit2, &mut rng).unwrap();
-        //let proof = Groth16::prove(&pk, circuit3, &mut rng).unwrap();
-        //let valid_proof = Groth16::verify(&vk, &vec![], &proof).unwrap();
-        /*assert!(valid_proof);*/
+        //let cs = ConstraintSystem::<<E as PairingEngine>::Fq>::new_ref();
+        //circuit.generate_constraints(cs.clone()).unwrap();
+        //println!("Num constraints: {}", cs.num_constraints());
+        //assert!(cs.is_satisfied().unwrap());
+        //
+        //
+        let circuit2 = FeldmanCommit::<E, EV>::new(secrets.clone()); // why can't I clne :(
+        let circuit3 = FeldmanCommit::<E, EV>::new(secrets); // why can't I clne :(
+        let (pk, vk) = Groth16::<P>::setup(circuit2, &mut rng).unwrap();
+        let proof = Groth16::prove(&pk, circuit3, &mut rng).unwrap();
+        let valid_proof = Groth16::verify(&vk, &vec![], &proof).unwrap();
+        assert!(valid_proof);
     }
 }

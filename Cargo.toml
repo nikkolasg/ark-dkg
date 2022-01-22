@@ -27,8 +27,9 @@ ark-nonnative-field = { version = "0.3.0", default-features = false }
 ark-relations = { version = "^0.3.0", default-features = false }
 ark-bls12-377 = { version = "^0.3.0", features = ["r1cs","curve"] }
 ark-bw6-761 = { version = "^0.3.0" }
-ark-groth16 = { version = "^0.3.0"}
+ark-groth16 = { version = "^0.3.0", features = ["r1cs"] }
 ark-sponge = { version = "^0.3.0" , features = ["r1cs"] }
+ark-crypto-primitives = { version = "^0.3.0", features = ["r1cs"] }
 rayon = "^1.5.1"
 json = "0.12.4"
 lazy_static = "^1.4.0"
