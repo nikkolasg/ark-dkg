@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn dkg() {
         let mut rng = ark_std::test_rng();
-        let degree = 50;
+        let degree = 3;
         let n = degree * 2;
         let secret = Fr::rand(&mut rng);
         let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
