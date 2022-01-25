@@ -33,8 +33,14 @@ ark-crypto-primitives = { version = "^0.3.0", features = ["r1cs"] }
 rayon = "^1.5.1"
 json = "0.12.4"
 lazy_static = "^1.4.0"
+tracing = { version = "0.1", default-features = false, features = [ "attributes" ] }
+tracing-subscriber = { version = "0.2" }
 
 [features]
 default = [ "std", "parallel" ]
 std = [ "ark-ff/std", "ark-ec/std", "ark-std/std" ]
 parallel = [ "std", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel" ]
+
+[patch.crates-io]
+ark-groth16 = { git = "https://github.com/nikkolasg/groth16" }
+ark-crypto-primitives = { git = "https://github.com/nikkolasg/crypto-primitives" }
