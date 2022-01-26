@@ -145,6 +145,31 @@ where
             .enforce_equal(&Boolean::constant(true))?;
         Ok(())
     }
+
+    fn verify_feldman_commitments(
+        &self,
+        cs: ConstraintSystemRef<O::Fr>,
+        shares: &[Vec<Boolean<I::Fq>>],
+        gen: &IV::G1Var,
+    ) -> Result<(), SynthesisError> {
+        let commitment_var = self
+            .commitments
+            .iter()
+            .map(|coeff| {
+                // TODO should probably put back subgroup check
+                IV::G1Var::new_variable_omit_prime_order_check(
+                    ark_relations::ns!(cs, "generate_p1"),
+                    || Ok(coeff.clone()),
+                    AllocationMode::Input,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (comm, share) in commitment_var.iter().zip(shares.iter()) {
+            let exp = gen.scalar_mul_le(share.iter())?;
+            comm.enforce_equal(&exp)?;
+        }
+        Ok(())
+    }
 }
 impl<O, I, IV> ConstraintSynthesizer<O::Fr> for DKGCircuit<O, I, IV>
 where
@@ -168,9 +193,16 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        // generator variable
+        let g = IV::G1Var::new_variable_omit_prime_order_check(
+            ark_relations::ns!(cs, "generator"),
+            || Ok(I::G1Projective::prime_subgroup_generator()),
+            AllocationMode::Input,
+        )?;
+
         // we then give the same shares to both
-        self.check_evaluation_proof(cs, &share_bits)?;
-        //self.feldman.verify_commitments(cs)?;
+        self.verify_feldman_commitments(cs.clone(), &share_bits, &g)?;
+        self.check_evaluation_proof(cs.clone(), &share_bits)?;
         Ok(())
     }
 }
