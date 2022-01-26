@@ -1,6 +1,9 @@
 use crate::eval_native::PolyEvaluator;
-use ark_crypto_primitives::{snark::SNARKGadget, SNARK};
-use ark_ec::PairingEngine;
+use crate::feldman::CommitCircuit;
+use ark_crypto_primitives::snark::SNARKGadget;
+use ark_crypto_primitives::snark::{BooleanInputVar, SNARK};
+use ark_ec::{PairingEngine, ProjectiveCurve};
+use ark_ff::{BitIteratorLE, PrimeField};
 use ark_groth16::{constraints::Groth16VerifierGadget, Groth16};
 use ark_groth16::{PreparedVerifyingKey, Proof as GrothProof, ProvingKey};
 use ark_r1cs_std::pairing::PairingVar;
@@ -8,8 +11,11 @@ use ark_r1cs_std::prelude::*;
 use ark_relations::ns;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_std::marker::PhantomData;
+use ark_std::ops::MulAssign;
 use ark_std::rand::{CryptoRng, Rng};
+use ark_std::vec::Vec;
 use ark_std::UniformRand;
+use rayon::prelude::*;
 
 pub struct DKGConfig<I: PairingEngine> {
     secret: I::Fr,
@@ -26,8 +32,10 @@ where
     IV: PairingVar<I>,
 {
     conf: DKGConfig<I>,
-    pub_inputs: Vec<I::Fr>,
     inner_proof: GrothProof<I>,
+    commitments: Vec<I::G1Projective>,
+    coeffs: Vec<I::Fr>,
+    shares: Vec<I::Fr>,
     _op: PhantomData<O>,
     _ip: PhantomData<IV>,
 }
@@ -49,13 +57,25 @@ where
         let coeffs = std::iter::once(conf.secret)
             .chain((0..conf.threshold - 2).map(|_| I::Fr::rand(&mut rng)))
             .collect::<Vec<_>>();
-        let pe = PolyEvaluator::<I::Fr>::new(coeffs, conf.ids.clone());
-        let pub_inputs = pe.public_inputs();
+        let pe = PolyEvaluator::<I::Fr>::new(coeffs.clone(), conf.ids.clone());
+        // TODO make that generator an input
+        let shares = pe.evaluation_results();
+        let commitments = shares
+            .par_iter()
+            .cloned()
+            .map(|s| {
+                let mut c = I::G1Projective::prime_subgroup_generator();
+                c.mul_assign(s);
+                c
+            })
+            .collect::<Vec<_>>();
         let proof = Groth16::<I>::prove(&conf.inner_pk, pe, &mut rng)?;
         Ok(Self {
             conf: conf,
             inner_proof: proof,
-            pub_inputs: pub_inputs,
+            coeffs: coeffs,
+            shares: shares,
+            commitments: commitments,
             _op: PhantomData,
             _ip: PhantomData,
         })
@@ -64,22 +84,50 @@ where
     pub fn check_evaluation_proof(
         self,
         cs: ConstraintSystemRef<O::Fr>,
+        shares: &[Vec<Boolean<O::Fr>>],
     ) -> Result<(), SynthesisError> {
         println!("verifying native proof");
-        assert!(ark_groth16::verify_proof(
-            &self.conf.inner_vk,
-            &self.inner_proof,
-            &self.pub_inputs
-        )
-        .unwrap());
+
+        debug_assert!({
+            let mut pub_inputs = self.coeffs.clone();
+            pub_inputs.extend(self.conf.ids.clone());
+            pub_inputs.extend(self.shares.clone());
+            ark_groth16::verify_proof(&self.conf.inner_vk, &self.inner_proof, &pub_inputs).unwrap()
+        });
         println!("verifying native proof PASSED");
-        // prepare inputs, proof and vk vars
-        let inputs_var =
-            <Groth16VerifierGadget<I, IV> as SNARKGadget<
-                <I as PairingEngine>::Fr,
-                <I as PairingEngine>::Fq,
-                Groth16<I>,
-            >>::InputVar::new_input(ns!(cs, "inner inputs"), || Ok(self.pub_inputs))?;
+        // the inputs are : coefficients, evaluations points and results
+        // (shares)
+        let share_bits = self
+            .shares
+            .iter()
+            .map(|s| {
+                let bits: Vec<bool> = BitIteratorLE::new(s.into_repr().as_ref().to_vec()).collect();
+                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let coeffs_bits = self
+            .coeffs
+            .iter()
+            .map(|c| {
+                let bits: Vec<bool> = BitIteratorLE::new(c.into_repr().as_ref().to_vec()).collect();
+                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let ids_bits = self
+            .conf
+            .ids
+            .iter()
+            .map(|i| {
+                let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
+                Vec::new_input(ark_relations::ns!(cs, "shares"), || Ok(bits))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut pub_inputs = coeffs_bits;
+        pub_inputs.extend(ids_bits);
+        pub_inputs.extend(share_bits);
+        // TODO - provide ways to do that easily
+        let inputs_var = BooleanInputVar::<I::Fr, I::Fq>::new(pub_inputs);
+
         let proof_var =
             <Groth16VerifierGadget<I, IV> as SNARKGadget<
                 <I as PairingEngine>::Fr,
@@ -105,7 +153,25 @@ where
     IV: PairingVar<I>,
 {
     fn generate_constraints(self, cs: ConstraintSystemRef<O::Fr>) -> Result<(), SynthesisError> {
-        self.check_evaluation_proof(cs)
+        // shares are commin input between the Groth16 verification circuit and
+        // the commitment circuit evaluation so we need to create the var once
+        // and give that to both subcomponents - the API for Groth16 doesn't
+        // allow us that so we need to create BooleanInputVar directly
+        // ASSUMPTIONS: I::Fr < I::Fq which is true for bls12-377
+        // We are taking the shares as witness in FpVar and turning them into Vec<Boolean<I::Fq>>
+        let share_bits = self
+            .shares
+            .iter()
+            .map(|s| {
+                let bits: Vec<bool> = BitIteratorLE::new(s.into_repr().as_ref().to_vec()).collect();
+                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // we then give the same shares to both
+        self.check_evaluation_proof(cs, &share_bits)?;
+        //self.feldman.verify_commitments(cs)?;
+        Ok(())
     }
 }
 

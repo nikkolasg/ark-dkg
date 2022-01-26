@@ -9,7 +9,7 @@ use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisE
 
 pub struct PolyEvaluator<F: PrimeField> {
     poly: DensePolynomial<F>,
-    evals: Vec<F>,
+    pub evals: Vec<F>,
     pub results: Vec<F>,
 }
 
@@ -27,6 +27,11 @@ where
             results: res,
         }
     }
+
+    pub fn evaluation_results(&self) -> Vec<F> {
+        self.results.clone()
+    }
+
     pub fn public_inputs(&self) -> Vec<F> {
         let mut pubs = self.poly.coeffs.clone();
         pubs.append(&mut self.evals.clone());
