@@ -2,7 +2,7 @@ use crate::eval_native::PolyEvaluator;
 use crate::feldman::CommitCircuit;
 use ark_crypto_primitives::snark::SNARKGadget;
 use ark_crypto_primitives::snark::{BooleanInputVar, SNARK};
-use ark_ec::{PairingEngine, ProjectiveCurve};
+use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{BitIteratorLE, PrimeField};
 use ark_groth16::{constraints::Groth16VerifierGadget, Groth16};
 use ark_groth16::{PreparedVerifyingKey, Proof as GrothProof, ProvingKey};
@@ -60,6 +60,7 @@ where
         let pe = PolyEvaluator::<I::Fr>::new(coeffs.clone(), conf.ids.clone());
         // TODO make that generator an input
         let shares = pe.evaluation_results();
+
         let commitments = shares
             .par_iter()
             .cloned()
@@ -167,6 +168,20 @@ where
         for (comm, share) in commitment_var.iter().zip(shares.iter()) {
             let exp = gen.scalar_mul_le(share.iter())?;
             comm.enforce_equal(&exp)?;
+        }
+        {
+            I::G1Projective::prime_subgroup_generator()
+                .into_affine()
+                .xy();
+            IV::G1Var::new_variable(
+                ark_relations::ns!(cs, "generate_p1"),
+                || Ok(I::G1Affine::prime_subgroup_generator()),
+                AllocationMode::Input,
+            )
+            .unwrap()
+            .affine_coords()
+            .unwrap();
+            ()
         }
         Ok(())
     }
