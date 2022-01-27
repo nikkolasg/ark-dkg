@@ -164,6 +164,9 @@ where
             .zip(native_msgs.into_iter())
             .map(|(coords, msg)| {
                 let mut poseidon = PoseidonSpongeVar::new(cs.clone(), &self.params);
+                // TODO: this absorbs both X and Y and Infinity symbol making 3
+                // vars per hash, which is way too much - we only need x
+                // Making this is hard because of the type system.
                 poseidon.absorb(&coords);
                 poseidon
                     .squeeze_nonnative_field_elements::<C::ScalarField>(1)

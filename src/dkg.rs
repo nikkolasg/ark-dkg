@@ -17,12 +17,30 @@ use ark_std::vec::Vec;
 use ark_std::UniformRand;
 use rayon::prelude::*;
 
+pub struct Node<C: ProjectiveCurve> {
+    pub key: C,
+    pub idx: C::ScalarField,
+}
+
 pub struct DKGConfig<I: PairingEngine> {
     secret: I::Fr,
     threshold: usize,
-    ids: Vec<I::Fr>,
+    // indices to be attributed to each public keys
+    participants: Vec<Node<I::G1Projective>>,
     inner_pk: ProvingKey<I>,
     inner_vk: PreparedVerifyingKey<I>,
+}
+
+impl<I> DKGConfig<I>
+where
+    I: PairingEngine,
+{
+    pub fn ids(&self) -> Vec<I::Fr> {
+        self.participants.par_iter().map(|p| p.idx).collect()
+    }
+    pub fn public_keys(&self) -> Vec<I::G1Projective> {
+        self.participants.par_iter().map(|p| p.key).collect()
+    }
 }
 
 pub struct DKGCircuit<O, I, IV>
@@ -57,7 +75,7 @@ where
         let coeffs = std::iter::once(conf.secret)
             .chain((0..conf.threshold - 2).map(|_| I::Fr::rand(&mut rng)))
             .collect::<Vec<_>>();
-        let pe = PolyEvaluator::<I::Fr>::new(coeffs.clone(), conf.ids.clone());
+        let pe = PolyEvaluator::<I::Fr>::new(coeffs.clone(), conf.ids());
         // TODO make that generator an input
         let shares = pe.evaluation_results();
 
@@ -70,7 +88,11 @@ where
                 c
             })
             .collect::<Vec<_>>();
+        // evaluation proof of the shares
         let proof = Groth16::<I>::prove(&conf.inner_pk, pe, &mut rng)?;
+        // encryption gadget
+        //EncryptCircuit::<I::G1Projective,IV::G1Var>::new(shares,
+
         Ok(Self {
             conf: conf,
             inner_proof: proof,
@@ -91,7 +113,7 @@ where
 
         debug_assert!({
             let mut pub_inputs = self.coeffs.clone();
-            pub_inputs.extend(self.conf.ids.clone());
+            pub_inputs.extend(self.conf.ids());
             pub_inputs.extend(self.shares.clone());
             ark_groth16::verify_proof(&self.conf.inner_vk, &self.inner_proof, &pub_inputs).unwrap()
         });
@@ -116,7 +138,7 @@ where
             .collect::<Result<Vec<_>, _>>()?;
         let ids_bits = self
             .conf
-            .ids
+            .ids()
             .iter()
             .map(|i| {
                 let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
@@ -242,7 +264,12 @@ mod tests {
         let degree = threshold - 1;
         let n = degree * 2;
         let secret = Fr::rand(&mut rng);
-        let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
+        let participants = (0..n)
+            .map(|i| Node {
+                idx: Fr::from((i + 1) as u32),
+                key: G1Projective::rand(&mut rng), // dont care for the moment
+            })
+            .collect::<Vec<_>>();
         // create pk, vk for inner proof
         let (pk, vk) = {
             let coeffs = std::iter::once(secret.clone())
@@ -257,7 +284,7 @@ mod tests {
         let config = DKGConfig {
             secret: secret,
             threshold: threshold,
-            ids: ids,
+            participants: nodes,
             inner_pk: pk,
             inner_vk: pvk,
         };
