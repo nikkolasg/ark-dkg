@@ -34,8 +34,8 @@ parallel = [ "std", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel" ]
 [patch.crates-io]
 #ark-groth16 = { git = "https://github.com/nikkolasg/groth16" }
 #ark-crypto-primitives = { git = "https://github.com/nikkolasg/crypto-primitives" }
-#ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/", rev = "a2a5ac491ae005ba2afd03fd21b7d3160d794a83"}
-ark-r1cs-std = { path = "../r1cs-std" }
+ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/", rev = "a2a5ac491ae005ba2afd03fd21b7d3160d794a83"}
+#ark-r1cs-std = { path = "../r1cs-std" }
 ark-ec = { path = "../algebra/ec" }
 ark-ff = { path = "../algebra/ff" }
 ark-poly = { path = "../algebra/poly" }

@@ -27,7 +27,7 @@ use ark_bls12_377::{constraints::*, *};
 pub struct EncryptCircuit<C, CV>
 where
     C: ProjectiveCurve,
-    C::BaseField: PrimeField, // Prime for constraint CV and Absorb for Poseidon
+    C::BaseField: PrimeField, // Prime for constraint CV
     CV: CurveVar<C, C::BaseField> + AllocVar<C, C::BaseField>,
 {
     r: Vec<C::ScalarField>,
@@ -44,7 +44,7 @@ impl<C, CV> EncryptCircuit<C, CV>
 where
     C: ProjectiveCurve,
     C::BaseField: PrimeField,
-    C::Affine: Absorb,
+    C::Affine: Absorb, // because I absorb affine coordinates
     CV: CurveVar<C, C::BaseField> + AllocVar<C, C::BaseField> + AbsorbGadget<C::BaseField>,
 {
     pub fn new<R: Rng>(
@@ -98,9 +98,10 @@ where
         }
     }
 
-    fn verify_encryption(
-        self,
+    pub fn verify_encryption(
+        &self,
         cs: ConstraintSystemRef<C::BaseField>,
+        native_msgs: &[NonNativeFieldVar<C::ScalarField, C::BaseField>],
     ) -> Result<(), SynthesisError> {
         let g = CV::new_variable_omit_prime_order_check(
             ark_relations::ns!(cs, "generator"),
@@ -119,11 +120,11 @@ where
             .collect::<Result<Vec<_>, _>>()?;
         let grvars = self
             .grs
-            .into_iter()
+            .iter()
             .map(|gr| {
                 CV::new_variable_omit_prime_order_check(
                     ark_relations::ns!(cs, "gr"),
-                    || Ok(gr),
+                    || Ok(gr.clone()),
                     AllocationMode::Input,
                 )
             })
@@ -137,27 +138,17 @@ where
         let poseidon = PoseidonSpongeVar::new(cs.clone(), &self.params);
         let pubrs = self
             .pub_rs
-            .into_iter()
+            .iter()
             .map(|p|
                 // need affine form to get the x coordinate
                 CV::new_variable_omit_prime_order_check(
                     ark_relations::ns!(cs,"pubrs"),
-                    || Ok(p),
+                    || Ok(p.clone()),
                     AllocationMode::Input,
                 )) //.and_then(|g1var| g1var.affine_coords()))
             .collect::<Result<Vec<_>, _>>()?;
 
         // put the msgs (evaluation of poly) as non native field element
-        let native_msgs = self
-            .msgs
-            .into_iter()
-            .map(|m| {
-                NonNativeFieldVar::<C::ScalarField, C::BaseField>::new_witness(
-                    ark_relations::ns!(cs, "msgs"),
-                    || Ok(m),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         // now do the encryption !
         let computeds = pubrs
             .into_iter()
@@ -201,7 +192,18 @@ where
         self,
         cs: ConstraintSystemRef<C::BaseField>,
     ) -> Result<(), SynthesisError> {
-        self.verify_encryption(cs)
+        let native_msgs = self
+            .msgs
+            .iter()
+            .map(|m| {
+                NonNativeFieldVar::<C::ScalarField, C::BaseField>::new_witness(
+                    ark_relations::ns!(cs, "msgs"),
+                    || Ok(m.clone()),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.verify_encryption(cs, &native_msgs)
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::encrypt::EncryptCircuit;
 use crate::eval_native::PolyEvaluator;
 use crate::feldman::CommitCircuit;
 use ark_crypto_primitives::snark::SNARKGadget;
@@ -6,10 +7,13 @@ use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{BitIteratorLE, PrimeField};
 use ark_groth16::{constraints::Groth16VerifierGadget, Groth16};
 use ark_groth16::{PreparedVerifyingKey, Proof as GrothProof, ProvingKey};
+use ark_nonnative_field::NonNativeFieldVar;
 use ark_r1cs_std::pairing::PairingVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::ns;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+use ark_sponge::constraints::AbsorbGadget;
+use ark_sponge::{poseidon::PoseidonParameters, Absorb};
 use ark_std::marker::PhantomData;
 use ark_std::ops::MulAssign;
 use ark_std::rand::{CryptoRng, Rng};
@@ -29,6 +33,7 @@ pub struct DKGConfig<I: PairingEngine> {
     participants: Vec<Node<I::G1Projective>>,
     inner_pk: ProvingKey<I>,
     inner_vk: PreparedVerifyingKey<I>,
+    poseidon_params: PoseidonParameters<I::Fq>,
 }
 
 impl<I> DKGConfig<I>
@@ -43,26 +48,35 @@ where
     }
 }
 
-pub struct DKGCircuit<O, I, IV>
+pub struct DKGCircuit<I, IV>
 where
-    O: PairingEngine,
-    I: PairingEngine<Fq = O::Fr>,
+    I: PairingEngine,
     IV: PairingVar<I>,
+    // mimicking encrypt restriction on types
+    I::Fq: PrimeField,
+    //// TODO Why is this not taken into account ?
+    IV::G1Var: AbsorbGadget<I::Fq>,
+    I::G1Affine: Absorb,
 {
     conf: DKGConfig<I>,
     inner_proof: GrothProof<I>,
     commitments: Vec<I::G1Projective>,
     coeffs: Vec<I::Fr>,
     shares: Vec<I::Fr>,
-    _op: PhantomData<O>,
+    encryption: EncryptCircuit<I::G1Projective, IV::G1Var>,
+    //_op: PhantomData<O>,
     _ip: PhantomData<IV>,
 }
 
-impl<O, I, IV> DKGCircuit<O, I, IV>
+impl<I, IV> DKGCircuit<I, IV>
 where
-    O: PairingEngine,
-    I: PairingEngine<Fq = O::Fr>,
+    //O: PairingEngine,
+    I: PairingEngine,
+    //IV: PairingVar<I, <O as PairingEngine>::Fr>,
     IV: PairingVar<I>,
+    I::Fq: PrimeField,
+    IV::G1Var: AbsorbGadget<I::Fq>,
+    I::G1Affine: Absorb,
 {
     pub fn new<R: Rng + CryptoRng>(
         conf: DKGConfig<I>,
@@ -91,7 +105,12 @@ where
         // evaluation proof of the shares
         let proof = Groth16::<I>::prove(&conf.inner_pk, pe, &mut rng)?;
         // encryption gadget
-        //EncryptCircuit::<I::G1Projective,IV::G1Var>::new(shares,
+        let encryption = EncryptCircuit::<I::G1Projective, IV::G1Var>::new(
+            shares.clone(),
+            conf.public_keys(),
+            conf.poseidon_params.clone(),
+            &mut rng,
+        );
 
         Ok(Self {
             conf: conf,
@@ -99,15 +118,16 @@ where
             coeffs: coeffs,
             shares: shares,
             commitments: commitments,
-            _op: PhantomData,
+            encryption: encryption,
+            //_op: PhantomData,
             _ip: PhantomData,
         })
     }
 
     pub fn check_evaluation_proof(
         self,
-        cs: ConstraintSystemRef<O::Fr>,
-        shares: &[Vec<Boolean<O::Fr>>],
+        cs: ConstraintSystemRef<I::Fq>,
+        shares: &[Vec<Boolean<I::Fq>>],
     ) -> Result<(), SynthesisError> {
         println!("verifying native proof");
 
@@ -171,7 +191,7 @@ where
 
     fn verify_feldman_commitments(
         &self,
-        cs: ConstraintSystemRef<O::Fr>,
+        cs: ConstraintSystemRef<I::Fq>,
         shares: &[Vec<Boolean<I::Fq>>],
         gen: &IV::G1Var,
     ) -> Result<(), SynthesisError> {
@@ -191,42 +211,56 @@ where
             let exp = gen.scalar_mul_le(share.iter())?;
             comm.enforce_equal(&exp)?;
         }
-        {
-            I::G1Projective::prime_subgroup_generator()
-                .into_affine()
-                .xy();
-            IV::G1Var::new_variable(
-                ark_relations::ns!(cs, "generate_p1"),
-                || Ok(I::G1Affine::prime_subgroup_generator()),
-                AllocationMode::Input,
-            )
-            .unwrap()
-            .affine_coords()
-            .unwrap();
-            ()
-        }
+        /*        {*/
+        //I::G1Projective::prime_subgroup_generator()
+        //.into_affine()
+        //.xy();
+        //IV::G1Var::new_variable(
+        //ark_relations::ns!(cs, "generate_p1"),
+        //|| Ok(I::G1Affine::prime_subgroup_generator()),
+        //AllocationMode::Input,
+        //)
+        //.unwrap()
+        //.affine_coords()
+        //.unwrap();
+        //()
+        /*}*/
         Ok(())
     }
 }
-impl<O, I, IV> ConstraintSynthesizer<O::Fr> for DKGCircuit<O, I, IV>
+impl<I, IV> ConstraintSynthesizer<I::Fq> for DKGCircuit<I, IV>
 where
-    O: PairingEngine,
-    I: PairingEngine<Fq = O::Fr>,
+    //I: PairingEngine<Fq = O::Fr>,
+    //IV: PairingVar<I, <O as PairingEngine>::Fr>,
+    I: PairingEngine,
     IV: PairingVar<I>,
+    IV::G1Var: AbsorbGadget<I::Fq>,
+    I::G1Affine: Absorb,
 {
-    fn generate_constraints(self, cs: ConstraintSystemRef<O::Fr>) -> Result<(), SynthesisError> {
+    fn generate_constraints(self, cs: ConstraintSystemRef<I::Fq>) -> Result<(), SynthesisError> {
         // shares are commin input between the Groth16 verification circuit and
         // the commitment circuit evaluation so we need to create the var once
         // and give that to both subcomponents - the API for Groth16 doesn't
         // allow us that so we need to create BooleanInputVar directly
         // ASSUMPTIONS: I::Fr < I::Fq which is true for bls12-377
         // We are taking the shares as witness in FpVar and turning them into Vec<Boolean<I::Fq>>
-        let share_bits = self
+        let share_fields = self
             .shares
             .iter()
             .map(|s| {
-                let bits: Vec<bool> = BitIteratorLE::new(s.into_repr().as_ref().to_vec()).collect();
-                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+                NonNativeFieldVar::<I::Fr, I::Fq>::new_witness(
+                    ark_relations::ns!(cs, "share_nonnative"),
+                    || Ok(s),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let share_bits = share_fields
+            //self.shares
+            .iter()
+            .map(|s| {
+                //let bits: Vec<bool> = BitIteratorLE::new(s.into_repr().as_ref().to_vec()).collect();
+                //Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+                s.to_bits_le()
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -239,6 +273,8 @@ where
 
         // we then give the same shares to both
         self.verify_feldman_commitments(cs.clone(), &share_bits, &g)?;
+        self.encryption
+            .verify_encryption(cs.clone(), &share_fields)?;
         self.check_evaluation_proof(cs.clone(), &share_bits)?;
         Ok(())
     }
@@ -264,10 +300,15 @@ mod tests {
         let degree = threshold - 1;
         let n = degree * 2;
         let secret = Fr::rand(&mut rng);
+        let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
         let participants = (0..n)
-            .map(|i| Node {
-                idx: Fr::from((i + 1) as u32),
-                key: G1Projective::rand(&mut rng), // dont care for the moment
+            .map(
+                |i| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
+            )
+            .zip(ids.iter())
+            .map(|(p, idx)| Node {
+                idx: idx.clone(),
+                key: p,
             })
             .collect::<Vec<_>>();
         // create pk, vk for inner proof
@@ -284,17 +325,18 @@ mod tests {
         let config = DKGConfig {
             secret: secret,
             threshold: threshold,
-            participants: nodes,
+            participants: participants,
             inner_pk: pk,
             inner_vk: pvk,
+            poseidon_params: crate::poseidon::get_bls12377_fq_params(2),
         };
-        let circuit = DKGCircuit::<O, I, IV>::new(config, &mut rng).unwrap();
+        let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
 
         let mut layer = ConstraintLayer::default();
         layer.mode = TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         let _guard = tracing::subscriber::set_default(subscriber);
-        let cs = ConstraintSystem::<<O as PairingEngine>::Fr>::new_ref();
+        let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
         circuit.generate_constraints(cs.clone()).unwrap();
         println!("Num constraints: {}", cs.num_constraints());
         assert!(
