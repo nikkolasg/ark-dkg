@@ -98,7 +98,7 @@ mod tests {
     // test eval_nonnative::tests::nonnative_poly_eval ... ok
 
     #[test]
-    fn nonnative_poly_eval() {
+    fn nonnative() {
         let degree = 50;
         let n = degree * 2 - 1;
         let mut rng = ark_std::test_rng();

@@ -5,7 +5,7 @@ extern crate json;
 extern crate lazy_static;
 
 //mod kzg;
-//mod encrypt;
+mod dkg;
 mod encrypt;
 mod eval_native;
 mod eval_nonnative;
