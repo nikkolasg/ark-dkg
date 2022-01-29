@@ -21,11 +21,13 @@ use ark_std::vec::Vec;
 use ark_std::UniformRand;
 use rayon::prelude::*;
 
+#[derive(Clone)]
 pub struct Node<C: ProjectiveCurve> {
     pub key: C,
     pub idx: C::ScalarField,
 }
 
+#[derive(Clone)]
 pub struct DKGConfig<I: PairingEngine> {
     secret: I::Fr,
     threshold: usize,
@@ -162,7 +164,7 @@ where
             .iter()
             .map(|i| {
                 let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
-                Vec::new_input(ark_relations::ns!(cs, "shares"), || Ok(bits))
+                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut pub_inputs = coeffs_bits;
@@ -203,7 +205,7 @@ where
                 IV::G1Var::new_variable_omit_prime_order_check(
                     ark_relations::ns!(cs, "generate_p1"),
                     || Ok(coeff.clone()),
-                    AllocationMode::Input,
+                    AllocationMode::Witness,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -211,20 +213,6 @@ where
             let exp = gen.scalar_mul_le(share.iter())?;
             comm.enforce_equal(&exp)?;
         }
-        /*        {*/
-        //I::G1Projective::prime_subgroup_generator()
-        //.into_affine()
-        //.xy();
-        //IV::G1Var::new_variable(
-        //ark_relations::ns!(cs, "generate_p1"),
-        //|| Ok(I::G1Affine::prime_subgroup_generator()),
-        //AllocationMode::Input,
-        //)
-        //.unwrap()
-        //.affine_coords()
-        //.unwrap();
-        //()
-        /*}*/
         Ok(())
     }
 }
@@ -268,7 +256,7 @@ where
         let g = IV::G1Var::new_variable_omit_prime_order_check(
             ark_relations::ns!(cs, "generator"),
             || Ok(I::G1Projective::prime_subgroup_generator()),
-            AllocationMode::Input,
+            AllocationMode::Witness,
         )?;
 
         // we then give the same shares to both
@@ -330,19 +318,25 @@ mod tests {
             inner_vk: pvk,
             poseidon_params: crate::poseidon::get_bls12377_fq_params(2),
         };
+        let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
+        let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
+        let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
         let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
+        let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
 
-        let mut layer = ConstraintLayer::default();
-        layer.mode = TracingMode::OnlyConstraints;
-        let subscriber = tracing_subscriber::Registry::default().with(layer);
-        let _guard = tracing::subscriber::set_default(subscriber);
-        let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
-        circuit.generate_constraints(cs.clone()).unwrap();
-        println!("Num constraints: {}", cs.num_constraints());
-        assert!(
-            cs.is_satisfied().unwrap(),
-            "Constraints not satisfied: {}",
-            cs.which_is_unsatisfied().unwrap().unwrap_or_default()
-        );
+        ark_groth16::verify_proof(&opvk, &oproof, &vec![]).unwrap();
+
+        /*let mut layer = ConstraintLayer::default();*/
+        //layer.mode = TracingMode::OnlyConstraints;
+        //let subscriber = tracing_subscriber::Registry::default().with(layer);
+        //let _guard = tracing::subscriber::set_default(subscriber);
+        //let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
+        //circuit.generate_constraints(cs.clone()).unwrap();
+        //println!("Num constraints: {}", cs.num_constraints());
+        //assert!(
+        //cs.is_satisfied().unwrap(),
+        //"Constraints not satisfied: {}",
+        //cs.which_is_unsatisfied().unwrap().unwrap_or_default()
+        /*);*/
     }
 }

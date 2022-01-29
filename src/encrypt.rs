@@ -106,7 +106,7 @@ where
         let g = CV::new_variable_omit_prime_order_check(
             ark_relations::ns!(cs, "generator"),
             || Ok(C::prime_subgroup_generator()),
-            AllocationMode::Input,
+            AllocationMode::Witness,
         )?;
         // verify consistency with grs
         let rvars = self
@@ -125,7 +125,7 @@ where
                 CV::new_variable_omit_prime_order_check(
                     ark_relations::ns!(cs, "gr"),
                     || Ok(gr.clone()),
-                    AllocationMode::Input,
+                    AllocationMode::Witness,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -144,7 +144,7 @@ where
                 CV::new_variable_omit_prime_order_check(
                     ark_relations::ns!(cs,"pubrs"),
                     || Ok(p.clone()),
-                    AllocationMode::Input,
+                    AllocationMode::Witness,
                 )) //.and_then(|g1var| g1var.affine_coords()))
             .collect::<Result<Vec<_>, _>>()?;
 
