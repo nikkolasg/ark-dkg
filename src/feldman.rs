@@ -1,4 +1,4 @@
-use ark_ec::{PairingEngine, ProjectiveCurve};
+use ark_ec::PairingEngine;
 use ark_ff::{BitIteratorLE, PrimeField};
 use ark_r1cs_std::pairing::PairingVar;
 use ark_r1cs_std::prelude::*;
@@ -32,6 +32,7 @@ where
     E: PairingEngine,
     P: PairingVar<E>,
 {
+    #[allow(dead_code)]
     pub fn new(s: Vec<E::Fr>, generator: E::G1Projective) -> Self {
         let g = generator;
         let pubs = s
@@ -97,7 +98,7 @@ mod tests {
     use ark_bw6_761::BW6_761 as P;
     use ark_ec::ProjectiveCurve;
     use ark_groth16::Groth16;
-    use ark_relations::r1cs::ConstraintSystem;
+    //use ark_relations::r1cs::ConstraintSystem;
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::UniformRand;
 
@@ -110,7 +111,7 @@ mod tests {
             .collect::<Vec<_>>();
         let gen = <E as PairingEngine>::G1Projective::prime_subgroup_generator();
 
-        let circuit = CommitCircuit::<E, EV>::new(secrets.clone(), gen.clone());
+        //let circuit = CommitCircuit::<E, EV>::new(secrets.clone(), gen.clone());
         //let cs = ConstraintSystem::<<E as PairingEngine>::Fq>::new_ref();
         //circuit.generate_constraints(cs.clone()).unwrap();
         //println!("Num constraints: {}", cs.num_constraints());

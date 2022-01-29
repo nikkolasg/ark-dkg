@@ -1,7 +1,6 @@
-use ark_ec::{AffineCurve, ProjectiveCurve};
-use ark_ff::{fields::Field, BitIteratorLE, PrimeField};
+use ark_ec::ProjectiveCurve;
+use ark_ff::{BitIteratorLE, PrimeField};
 use ark_nonnative_field::NonNativeFieldVar;
-use ark_r1cs_std::groups::bls12;
 use ark_r1cs_std::groups::CurveVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
@@ -12,9 +11,7 @@ use ark_std::marker::PhantomData;
 use ark_std::rand::Rng;
 use ark_std::vec::Vec;
 use ark_std::UniformRand;
-use std::ops::MulAssign;
 
-use ark_bls12_377::{constraints::*, *};
 //
 // ElGamal encryption E = { g^r, H((g^x)^r) + secret }
 // Circuit will do the following
@@ -135,18 +132,39 @@ where
         }
 
         // now do the encryption
-        let poseidon = PoseidonSpongeVar::new(cs.clone(), &self.params);
+        // 1. multiply each public key by corresponding "r"
+        // 2. Hash the result and add the plaintext and check equality
+        let pubs = self
+            .pub_keys
+            .iter()
+            .map(|p|
+                // need affine form to get the x coordinate
+                CV::new_variable_omit_prime_order_check(
+                    ark_relations::ns!(cs,"pubs"),
+                    || Ok(p.clone()),
+                    AllocationMode::Witness,
+                )) //.and_then(|g1var| g1var.affine_coords()))
+            .collect::<Result<Vec<_>, _>>()?;
         let pubrs = self
             .pub_rs
             .iter()
             .map(|p|
                 // need affine form to get the x coordinate
                 CV::new_variable_omit_prime_order_check(
-                    ark_relations::ns!(cs,"pubrs"),
+                    ark_relations::ns!(cs,"pubs"),
                     || Ok(p.clone()),
                     AllocationMode::Witness,
                 )) //.and_then(|g1var| g1var.affine_coords()))
             .collect::<Result<Vec<_>, _>>()?;
+
+        let exp_pubrs = pubs
+            .iter()
+            .zip(rvars.iter())
+            .map(|(p, r)| p.scalar_mul_le(r.iter()))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (pubr, exp) in pubrs.iter().zip(exp_pubrs.iter()) {
+            pubr.enforce_equal(exp)?;
+        }
 
         // put the msgs (evaluation of poly) as non native field element
         // now do the encryption !
@@ -158,7 +176,7 @@ where
                 // TODO: this absorbs both X and Y and Infinity symbol making 3
                 // vars per hash, which is way too much - we only need x
                 // Making this is hard because of the type system.
-                poseidon.absorb(&coords);
+                poseidon.absorb(&coords)?;
                 poseidon
                     .squeeze_nonnative_field_elements::<C::ScalarField>(1)
                     .and_then(|r| Ok(r.0[0].clone() + msg))
@@ -210,6 +228,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_bls12_377::{constraints::G1Var, Fq, Fr, G1Projective};
     //use ark_bw6_761::BW6_761 as P;
     //use ark_ec::AffineCurve;
     //use ark_groth16::Groth16;

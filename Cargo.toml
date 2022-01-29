@@ -1,5 +1,5 @@
 [package]
-name = "dkg"
+name = "dkg-snark"
 version = "0.1.0"
 edition = "2021"
 
@@ -31,6 +31,10 @@ default = [ "std", "parallel" ]
 std = [ "ark-ff/std", "ark-ec/std", "ark-std/std" ]
 parallel = [ "std", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel" ]
 
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+csv = "1.1.5"
+
 [patch.crates-io]
 #ark-groth16 = { git = "https://github.com/nikkolasg/groth16" }
 #ark-crypto-primitives = { git = "https://github.com/nikkolasg/crypto-primitives" }
@@ -40,3 +44,7 @@ ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/", rev = "a2a5ac
 #ark-ff = { path = "../algebra/ff" }
 #ark-poly = { path = "../algebra/poly" }
 #ark-serialize = { path = "../algebra/serialize" }
+
+[[test]]
+name = "bench"
+path = "benches/bench.rs"

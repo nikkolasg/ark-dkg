@@ -1,7 +1,7 @@
 use json::JsonValue;
 lazy_static! {
     // bls12377_rate2_constraints:
-    pub static ref p1: JsonValue = object! {
+    pub static ref P1: JsonValue = object! {
         "ark" => array![
             array![
                 "123249878756453098914639601843199176451997132612914162343590671120179979107846114348064675842753496966502226470504",

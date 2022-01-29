@@ -1,9 +1,8 @@
 use crate::encrypt::EncryptCircuit;
-use crate::eval_native::PolyEvaluator;
-use crate::feldman::CommitCircuit;
+use crate::eval_native::PolyCircuit;
 use ark_crypto_primitives::snark::SNARKGadget;
 use ark_crypto_primitives::snark::{BooleanInputVar, SNARK};
-use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
+use ark_ec::{PairingEngine, ProjectiveCurve};
 use ark_ff::{BitIteratorLE, PrimeField};
 use ark_groth16::{constraints::Groth16VerifierGadget, Groth16};
 use ark_groth16::{PreparedVerifyingKey, Proof as GrothProof, ProvingKey};
@@ -29,13 +28,13 @@ pub struct Node<C: ProjectiveCurve> {
 
 #[derive(Clone)]
 pub struct DKGConfig<I: PairingEngine> {
-    secret: I::Fr,
-    threshold: usize,
+    pub secret: I::Fr,
+    pub threshold: usize,
     // indices to be attributed to each public keys
-    participants: Vec<Node<I::G1Projective>>,
-    inner_pk: ProvingKey<I>,
-    inner_vk: PreparedVerifyingKey<I>,
-    poseidon_params: PoseidonParameters<I::Fq>,
+    pub participants: Vec<Node<I::G1Projective>>,
+    pub inner_pk: ProvingKey<I>,
+    pub inner_vk: PreparedVerifyingKey<I>,
+    pub poseidon_params: PoseidonParameters<I::Fq>,
 }
 
 impl<I> DKGConfig<I>
@@ -91,7 +90,7 @@ where
         let coeffs = std::iter::once(conf.secret)
             .chain((0..conf.threshold - 2).map(|_| I::Fr::rand(&mut rng)))
             .collect::<Vec<_>>();
-        let pe = PolyEvaluator::<I::Fr>::new(coeffs.clone(), conf.ids());
+        let pe = PolyCircuit::<I::Fr>::new(coeffs.clone(), conf.ids());
         // TODO make that generator an input
         let shares = pe.evaluation_results();
 
@@ -129,7 +128,7 @@ where
     pub fn check_evaluation_proof(
         self,
         cs: ConstraintSystemRef<I::Fq>,
-        shares: &[Vec<Boolean<I::Fq>>],
+        shares: Vec<Vec<Boolean<I::Fq>>>,
     ) -> Result<(), SynthesisError> {
         println!("verifying native proof");
 
@@ -142,14 +141,14 @@ where
         println!("verifying native proof PASSED");
         // the inputs are : coefficients, evaluations points and results
         // (shares)
-        let share_bits = self
-            .shares
-            .iter()
-            .map(|s| {
-                let bits: Vec<bool> = BitIteratorLE::new(s.into_repr().as_ref().to_vec()).collect();
-                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let share_bits = shares; /*self*/
+        //.shares
+        //.iter()
+        //.map(|s| {
+        //let bits: Vec<bool> = BitIteratorLE::new(s.into_repr().as_ref().to_vec()).collect();
+        //Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+        //})
+        /*.collect::<Result<Vec<_>, _>>()?;*/
         let coeffs_bits = self
             .coeffs
             .iter()
@@ -263,7 +262,7 @@ where
         self.verify_feldman_commitments(cs.clone(), &share_bits, &g)?;
         self.encryption
             .verify_encryption(cs.clone(), &share_fields)?;
-        self.check_evaluation_proof(cs.clone(), &share_bits)?;
+        self.check_evaluation_proof(cs.clone(), share_bits)?;
         Ok(())
     }
 }
@@ -273,13 +272,11 @@ mod tests {
     use super::*;
     use ark_bls12_377::{constraints::PairingVar as IV, Bls12_377 as I, Fr};
     use ark_bw6_761::BW6_761 as O;
-    use ark_ec::ProjectiveCurve;
     use ark_groth16::Groth16;
-    use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
+    //use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::UniformRand;
-    use ark_std::Zero;
-    use tracing_subscriber::layer::SubscriberExt;
+    //use tracing_subscriber::layer::SubscriberExt;
 
     #[test]
     fn dkg() {
@@ -291,7 +288,7 @@ mod tests {
         let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
         let participants = (0..n)
             .map(
-                |i| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
+                |_| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
             )
             .zip(ids.iter())
             .map(|(p, idx)| Node {
@@ -304,7 +301,7 @@ mod tests {
             let coeffs = std::iter::once(secret.clone())
                 .chain((0..threshold - 2).map(|_| Fr::rand(&mut rng)))
                 .collect::<Vec<_>>();
-            let pe = PolyEvaluator::<Fr>::new(coeffs, ids.clone());
+            let pe = PolyCircuit::<Fr>::new(coeffs, ids.clone());
             Groth16::setup(pe, &mut rng).unwrap()
         };
         let pvk = Groth16::<I>::process_vk(&vk).unwrap();

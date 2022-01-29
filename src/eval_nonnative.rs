@@ -1,11 +1,8 @@
-use ark_ff::{BitIteratorLE, PrimeField};
+use ark_ff::PrimeField;
 use ark_nonnative_field::NonNativeFieldVar;
 use ark_poly::Polynomial;
 use ark_poly::{polynomial::univariate::DensePolynomial, UVPolynomial};
-use ark_r1cs_std::{
-    alloc::AllocVar, eq::EqGadget, fields::fp::FpVar,
-    poly::polynomial::univariate::dense::DensePolynomialVar,
-};
+use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget};
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 
 pub struct PolyEvaluator<F: PrimeField> {
@@ -19,6 +16,7 @@ where
     F: PrimeField,
 {
     // TODO make evaluations points simply (1...n) and put n as public input
+    #[allow(dead_code)]
     pub fn new(coeffs: Vec<F>, evals: Vec<F>) -> Self {
         let poly = DensePolynomial::from_coefficients_vec(coeffs);
         let res = evals.iter().map(|xi| poly.evaluate(xi)).collect::<Vec<_>>();
@@ -87,7 +85,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_bls12_377::{constraints::*, *};
+    use ark_bls12_377::*;
     use ark_relations::r1cs::ConstraintSystem;
     use ark_std::UniformRand;
 

@@ -1,4 +1,4 @@
-use ark_ff::{BitIteratorLE, PrimeField};
+use ark_ff::PrimeField;
 use ark_poly::Polynomial;
 use ark_poly::{polynomial::univariate::DensePolynomial, UVPolynomial};
 use ark_r1cs_std::{
@@ -7,13 +7,14 @@ use ark_r1cs_std::{
 };
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 
-pub struct PolyEvaluator<F: PrimeField> {
+#[derive(Clone)]
+pub struct PolyCircuit<F: PrimeField> {
     poly: DensePolynomial<F>,
     pub evals: Vec<F>,
     pub results: Vec<F>,
 }
 
-impl<F> PolyEvaluator<F>
+impl<F> PolyCircuit<F>
 where
     F: PrimeField,
 {
@@ -32,6 +33,7 @@ where
         self.results.clone()
     }
 
+    #[allow(dead_code)]
     pub fn public_inputs(&self) -> Vec<F> {
         let mut pubs = self.poly.coeffs.clone();
         pubs.append(&mut self.evals.clone());
@@ -65,7 +67,7 @@ where
     }
 }
 
-impl<F> ConstraintSynthesizer<F> for PolyEvaluator<F>
+impl<F> ConstraintSynthesizer<F> for PolyCircuit<F>
 where
     F: PrimeField,
 {
@@ -77,7 +79,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_bls12_377::{constraints::*, Bls12_377 as E, Fr};
+    use ark_bls12_377::{Bls12_377 as E, Fr};
     use ark_crypto_primitives::{CircuitSpecificSetupSNARK, SNARK};
     use ark_groth16::{prepare_verifying_key, verify_proof, Groth16};
     use ark_relations::r1cs::ConstraintSystem;
@@ -92,15 +94,15 @@ mod tests {
             .map(|_| Fr::rand(&mut rng))
             .collect::<Vec<_>>();
         let evals = (0..n).map(|i| Fr::from(i + 1)).collect::<Vec<_>>();
-        let circuit = PolyEvaluator::new(coeffs.clone(), evals.clone());
+        let circuit = PolyCircuit::new(coeffs.clone(), evals.clone());
         let cs = ConstraintSystem::<Fr>::new_ref();
         circuit.generate_constraints(cs.clone()).unwrap();
         println!("Num constraints: {}", cs.num_constraints());
         assert!(cs.is_satisfied().unwrap());
 
-        let circuit = PolyEvaluator::new(coeffs.clone(), evals.clone());
+        let circuit = PolyCircuit::new(coeffs.clone(), evals.clone());
         let (pk, vk) = Groth16::<E>::setup(circuit, &mut rng).unwrap();
-        let circuit = PolyEvaluator::new(coeffs.clone(), evals.clone());
+        let circuit = PolyCircuit::new(coeffs.clone(), evals.clone());
         let pubs = circuit.public_inputs();
         let proof = Groth16::<E>::prove(&pk, circuit, &mut rng).unwrap();
         let pvk = prepare_verifying_key(&vk);

@@ -5,11 +5,13 @@ extern crate json;
 extern crate lazy_static;
 
 //mod kzg;
-mod dkg;
+pub mod dkg;
+pub use dkg::*;
 mod encrypt;
-mod eval_native;
+pub mod eval_native;
+pub use eval_native::*;
 mod eval_nonnative;
 mod feldman;
 mod parameters;
-mod poseidon;
+pub mod poseidon;
 //mod utils;
