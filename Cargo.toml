@@ -45,6 +45,7 @@ ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/", rev = "a2a5ac
 #ark-poly = { path = "../algebra/poly" }
 #ark-serialize = { path = "../algebra/serialize" }
 
-[[test]]
+[[bench]]
 name = "bench"
 path = "benches/bench.rs"
+harness = false
