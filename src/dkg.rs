@@ -3,16 +3,21 @@ use crate::eval_native::PolyCircuit;
 use ark_crypto_primitives::snark::SNARKGadget;
 use ark_crypto_primitives::snark::{BooleanInputVar, SNARK};
 use ark_ec::{PairingEngine, ProjectiveCurve};
-use ark_ff::{BitIteratorLE, PrimeField};
+use ark_ff::{BigInteger, BitIteratorLE, PrimeField};
 use ark_groth16::{constraints::Groth16VerifierGadget, Groth16};
 use ark_groth16::{PreparedVerifyingKey, Proof as GrothProof, ProvingKey};
 use ark_nonnative_field::NonNativeFieldVar;
+use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::pairing::PairingVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::ns;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use ark_sponge::constraints::AbsorbGadget;
+use ark_sponge::constraints::{AbsorbGadget, CryptographicSpongeVar};
 use ark_sponge::{poseidon::PoseidonParameters, Absorb};
+use ark_sponge::{
+    poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
+    CryptographicSponge,
+};
 use ark_std::marker::PhantomData;
 use ark_std::ops::MulAssign;
 use ark_std::rand::{CryptoRng, Rng};
@@ -54,7 +59,7 @@ where
     I: PairingEngine,
     IV: PairingVar<I>,
     // mimicking encrypt restriction on types
-    I::Fq: PrimeField,
+    I::Fq: PrimeField + Absorb,
     //// TODO Why is this not taken into account ?
     IV::G1Var: AbsorbGadget<I::Fq>,
     I::G1Affine: Absorb,
@@ -75,7 +80,7 @@ where
     I: PairingEngine,
     //IV: PairingVar<I, <O as PairingEngine>::Fr>,
     IV: PairingVar<I>,
-    I::Fq: PrimeField,
+    I::Fq: PrimeField + Absorb,
     IV::G1Var: AbsorbGadget<I::Fq>,
     I::G1Affine: Absorb,
 {
@@ -112,7 +117,6 @@ where
             conf.poseidon_params.clone(),
             &mut rng,
         );
-
         Ok(Self {
             conf: conf,
             inner_proof: proof,
@@ -125,10 +129,94 @@ where
         })
     }
 
+    // commitment to the inputs: coeffs,shares,ids
+    pub fn input_commitment(&self) -> I::Fq {
+        let mut sponge = PoseidonSponge::new(&self.conf.poseidon_params);
+        for c in self.commitments.iter() {
+            sponge.absorb(&c.into_affine());
+        }
+        println!(
+            "native: after Commit {:?}",
+            sponge.squeeze_field_elements::<I::Fq>(1).remove(0)
+        );
+
+        // assertion is more complex than that but for PoC purpose we'll keep
+        // like that. We want to do like in
+        // primitive_constraints/snark/constraints style where they decide if a
+        // element can be constraints in the other one.
+        assert!(I::Fr::size_in_bits() <= I::Fq::size_in_bits());
+        for e in self.shares.iter().chain(self.conf.ids().iter()) {
+            let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
+                &e.into_repr().to_bits_le(),
+            ))
+            .unwrap(); // because Fr < Fq
+
+            //let bits = &e.into_repr().to_bits_le();
+            sponge.absorb(&scalar_in_fq);
+        }
+        println!(
+            "native: after Fr {:?}",
+            sponge.squeeze_field_elements::<I::Fq>(1).remove(0)
+        );
+
+        sponge.squeeze_field_elements(1).remove(0)
+    }
+
+    pub fn check_inputs(
+        &self,
+        cs: ConstraintSystemRef<I::Fq>,
+        shares: &[Vec<Boolean<I::Fq>>],
+        coeffs_commit: &[IV::G1Var],
+        ids: &[Vec<Boolean<I::Fq>>],
+    ) -> Result<(), SynthesisError> {
+        // input commitment
+        let input_var = FpVar::<I::Fq>::new_variable(
+            ns!(cs, "input_commitment"),
+            || Ok(self.input_commitment()),
+            AllocationMode::Input,
+        )?;
+
+        let mut poseidon = PoseidonSpongeVar::new(cs.clone(), &self.conf.poseidon_params);
+        for c in coeffs_commit.iter() {
+            poseidon.absorb(c)?;
+        }
+        if let Ok(v) = poseidon
+            .squeeze_field_elements(1)
+            .and_then(|mut v| Ok(v.remove(0)))
+        {
+            println!("Constraint after commit: {:?}", v.value().unwrap());
+        }
+
+        //for e in shares.iter().chain(ids.iter()) {
+        for e in self.shares.iter().chain(self.conf.ids().iter()) {
+            let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
+                &e.into_repr().to_bits_le(),
+            ))
+            .unwrap(); // because Fr < Fq
+
+            poseidon.absorb(&FpVar::new_witness(ns!(cs.clone(), "scalar fq"), || {
+                Ok(scalar_in_fq)
+            })?)?;
+        }
+        if let Ok(v) = poseidon
+            .squeeze_field_elements(1)
+            .and_then(|mut v| Ok(v.remove(0)))
+        {
+            println!("Constraint after Fr: {:?}", v.value().unwrap());
+        }
+
+        let exp = poseidon
+            .squeeze_field_elements(1)
+            .and_then(|mut v| Ok(v.remove(0)))?;
+        exp.enforce_equal(&input_var)?;
+        Ok(())
+    }
+
     pub fn check_evaluation_proof(
         self,
         cs: ConstraintSystemRef<I::Fq>,
         shares: Vec<Vec<Boolean<I::Fq>>>,
+        ids_bits: Vec<Vec<Boolean<I::Fq>>>,
     ) -> Result<(), SynthesisError> {
         println!("verifying native proof");
 
@@ -154,15 +242,6 @@ where
             .iter()
             .map(|c| {
                 let bits: Vec<bool> = BitIteratorLE::new(c.into_repr().as_ref().to_vec()).collect();
-                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let ids_bits = self
-            .conf
-            .ids()
-            .iter()
-            .map(|i| {
-                let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
                 Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -194,21 +273,10 @@ where
         &self,
         cs: ConstraintSystemRef<I::Fq>,
         shares: &[Vec<Boolean<I::Fq>>],
+        coeffs_commit: &[IV::G1Var],
         gen: &IV::G1Var,
     ) -> Result<(), SynthesisError> {
-        let commitment_var = self
-            .commitments
-            .iter()
-            .map(|coeff| {
-                // TODO should probably put back subgroup check
-                IV::G1Var::new_variable_omit_prime_order_check(
-                    ark_relations::ns!(cs, "generate_p1"),
-                    || Ok(coeff.clone()),
-                    AllocationMode::Witness,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        for (comm, share) in commitment_var.iter().zip(shares.iter()) {
+        for (comm, share) in coeffs_commit.iter().zip(shares.iter()) {
             let exp = gen.scalar_mul_le(share.iter())?;
             comm.enforce_equal(&exp)?;
         }
@@ -221,6 +289,7 @@ where
     //IV: PairingVar<I, <O as PairingEngine>::Fr>,
     I: PairingEngine,
     IV: PairingVar<I>,
+    I::Fq: Absorb,
     IV::G1Var: AbsorbGadget<I::Fq>,
     I::G1Affine: Absorb,
 {
@@ -250,6 +319,15 @@ where
                 s.to_bits_le()
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let ids_bits = self
+            .conf
+            .ids()
+            .iter()
+            .map(|i| {
+                let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
+                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         // generator variable
         let g = IV::G1Var::new_variable_omit_prime_order_check(
@@ -257,12 +335,26 @@ where
             || Ok(I::G1Projective::prime_subgroup_generator()),
             AllocationMode::Witness,
         )?;
+        let coeffs_commit = self
+            .commitments
+            .iter()
+            .map(|coeff| {
+                // TODO should probably put back subgroup check
+                IV::G1Var::new_variable_omit_prime_order_check(
+                    ark_relations::ns!(cs, "generate_p1"),
+                    || Ok(coeff.clone()),
+                    AllocationMode::Witness,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.check_inputs(cs.clone(), &share_bits, &coeffs_commit, &ids_bits)?;
 
         // we then give the same shares to both
-        self.verify_feldman_commitments(cs.clone(), &share_bits, &g)?;
+        self.verify_feldman_commitments(cs.clone(), &share_bits, &coeffs_commit, &g)?;
         self.encryption
             .verify_encryption(cs.clone(), &share_fields)?;
-        self.check_evaluation_proof(cs.clone(), share_bits)?;
+        self.check_evaluation_proof(cs.clone(), share_bits, ids_bits)?;
         Ok(())
     }
 }
@@ -273,10 +365,10 @@ mod tests {
     use ark_bls12_377::{constraints::PairingVar as IV, Bls12_377 as I, Fr};
     use ark_bw6_761::BW6_761 as O;
     use ark_groth16::Groth16;
-    //use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
+    use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::UniformRand;
-    //use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::layer::SubscriberExt;
 
     #[test]
     fn dkg() {
@@ -316,24 +408,27 @@ mod tests {
             poseidon_params: crate::poseidon::get_bls12377_fq_params(2),
         };
         let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
-        let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
-        let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
-        let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
-        let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
 
-        ark_groth16::verify_proof(&opvk, &oproof, &vec![]).unwrap();
+        /*let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();*/
+        //let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
+        //let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
+        //let input = vec![circuit.input_commitment()];
+        //let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
 
-        /*let mut layer = ConstraintLayer::default();*/
-        //layer.mode = TracingMode::OnlyConstraints;
-        //let subscriber = tracing_subscriber::Registry::default().with(layer);
-        //let _guard = tracing::subscriber::set_default(subscriber);
-        //let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
-        //circuit.generate_constraints(cs.clone()).unwrap();
-        //println!("Num constraints: {}", cs.num_constraints());
-        //assert!(
-        //cs.is_satisfied().unwrap(),
-        //"Constraints not satisfied: {}",
-        //cs.which_is_unsatisfied().unwrap().unwrap_or_default()
-        /*);*/
+        /*ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();*/
+
+        let input = vec![circuit.input_commitment()];
+        let mut layer = ConstraintLayer::default();
+        layer.mode = TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
+        circuit.generate_constraints(cs.clone()).unwrap();
+        println!("Num constraints: {}", cs.num_constraints());
+        assert!(
+            cs.is_satisfied().unwrap(),
+            "Constraints not satisfied: {}",
+            cs.which_is_unsatisfied().unwrap().unwrap_or_default()
+        );
     }
 }
