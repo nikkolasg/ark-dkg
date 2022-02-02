@@ -22,27 +22,8 @@ struct BenchResult {
 fn main() {
     let mut rng = ark_std::test_rng();
     let mut writer = csv::Writer::from_path("dkg_snark.csv").expect("unable to open csv writer");
-    let n_sizes = vec![50, 100, 500, 1000];
+    let n_sizes = vec![5, 50, 100, 500, 1000];
     //let n_sizes = [5];
-    let max_n = *n_sizes.last().unwrap();
-    let max_thr = max_n / 2 + 1;
-    let ids = (0..max_n)
-        .map(|i| Fr::from((i + 1) as u32))
-        .collect::<Vec<_>>();
-    let participants = (0..max_n)
-        .map(
-            |_| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
-        )
-        .zip(ids.iter())
-        .map(|(p, idx)| Node {
-            idx: idx.clone(),
-            key: p,
-        })
-        .collect::<Vec<_>>();
-    let secret = Fr::rand(&mut rng);
-    let coeffs = std::iter::once(secret.clone())
-        .chain((0..max_thr - 2).map(|_| Fr::rand(&mut rng)))
-        .collect::<Vec<Fr>>();
     let params = poseidon::get_bls12377_fq_params(2);
 
     let _values = n_sizes
@@ -55,9 +36,22 @@ fn main() {
             br.n = n as usize;
             br.thr = threshold;
             // create pk, vk for inner proof
-            let ids = ids.iter().take(n).cloned().collect();
-            let participants = participants.iter().take(n).cloned().collect();
-            let coeffs = coeffs.iter().take(threshold).cloned().collect::<Vec<_>>();
+            let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
+            let participants = (0..n)
+                .map(
+                    |_| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
+                )
+                .zip(ids.iter())
+                .map(|(p, idx)| Node {
+                    idx: idx.clone(),
+                    key: p,
+                })
+                .collect::<Vec<_>>();
+            let secret = Fr::rand(&mut rng);
+            let coeffs = std::iter::once(secret.clone())
+                .chain((0..threshold - 2).map(|_| Fr::rand(&mut rng)))
+                .collect::<Vec<Fr>>();
+
             let (pk, vk) = {
                 let pe = PolyCircuit::<Fr>::new(coeffs.clone(), ids);
                 // XXX is there a way to get this info without running twice the
@@ -65,7 +59,6 @@ fn main() {
                 let cs = ConstraintSystem::<<I as PairingEngine>::Fr>::new_ref();
                 pe.clone().generate_constraints(cs.clone()).unwrap();
                 br.inner_constraints = cs.num_constraints();
-
                 Groth16::setup(pe, &mut rng).unwrap()
             };
             let pvk = Groth16::<I>::process_vk(&vk).unwrap();
@@ -85,10 +78,10 @@ fn main() {
             br.total_constraints = cs.num_constraints();
 
             let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
-            let input = vec![circuit.input_commitment()];
             let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
             let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
             let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
+            let input = vec![circuit.input_commitment()];
 
             // TODO make a macro
             let start = Instant::now();

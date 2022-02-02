@@ -236,15 +236,15 @@ where
         shares: Vec<Vec<Boolean<I::Fq>>>,
         ids_bits: Vec<Vec<Boolean<I::Fq>>>,
     ) -> Result<(), SynthesisError> {
-        println!("verifying native proof");
-
         debug_assert!({
+            println!("verifying native proof");
             let mut pub_inputs = self.coeffs.clone();
             pub_inputs.extend(self.conf.ids());
             pub_inputs.extend(self.shares.clone());
-            ark_groth16::verify_proof(&self.conf.inner_vk, &self.inner_proof, &pub_inputs).unwrap()
+            ark_groth16::verify_proof(&self.conf.inner_vk, &self.inner_proof, &pub_inputs).unwrap();
+            println!("verifying native proof PASSED");
+            true
         });
-        println!("verifying native proof PASSED");
         // the inputs are : coefficients, evaluations points and results
         // (shares)
         let share_bits = shares; /*self*/
