@@ -22,7 +22,7 @@ struct BenchResult {
 fn main() {
     let mut rng = ark_std::test_rng();
     let mut writer = csv::Writer::from_path("dkg_snark.csv").expect("unable to open csv writer");
-    let n_sizes = vec![5, 50, 100, 500, 1000];
+    let n_sizes = vec![5, 50, 100, 500, 800];
     //let n_sizes = [5];
     let params = poseidon::get_bls12377_fq_params(2);
 
@@ -82,15 +82,20 @@ fn main() {
                 cs.num_constraints()
             };
 
-            println!("\tAllocating DKGCircuit for Groth16 setup ...");
-            let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
-            println!("\tDKGCircuit Groth16 setup ...");
-            let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
-            let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
+            let (opv, opvk) = {
+                println!("\tAllocating DKGCircuit for Groth16 setup ...");
+                let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
+                println!("\tDKGCircuit Groth16 setup ...");
+                let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
+                let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
+                (opk, opvk)
+            };
 
             println!("\tAllocating DKGCircuit final instance...");
             let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
+            let start = Instant::now();
             let input = vec![circuit.input_commitment()];
+            br.verifying = start.elapsed().as_millis();
 
             // TODO make a macro
             let start = Instant::now();
@@ -101,7 +106,9 @@ fn main() {
             let start = Instant::now();
             println!("\tVerifying...");
             ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
-            br.verifying = start.elapsed().as_millis();
+            // verifying takes into account the time to compute the hashed
+            // commitment
+            br.verifying += start.elapsed().as_millis();
             writer
                 .serialize(br)
                 .expect("unable to write results to csv");
