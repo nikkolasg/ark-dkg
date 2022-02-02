@@ -167,7 +167,7 @@ where
         cs: ConstraintSystemRef<I::Fq>,
         shares: &[Vec<Boolean<I::Fq>>],
         coeffs_commit: &[IV::G1Var],
-        ids: &[Vec<Boolean<I::Fq>>],
+        ids: &[FpVar<I::Fq>],
     ) -> Result<(), SynthesisError> {
         // input commitment
         let input_var = FpVar::<I::Fq>::new_variable(
@@ -188,16 +188,33 @@ where
         /*}*/
 
         //for e in shares.iter().chain(ids.iter()) {
-        for e in self.shares.iter().chain(self.conf.ids().iter()) {
+        for (native, bits_var) in self.shares.iter().zip(shares.iter()) {
             // TODO why can't we simply use 1 Fq for an Fr
             let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
-                &e.into_repr().to_bits_le(),
+                &native.into_repr().to_bits_le(),
             ))
             .unwrap(); // because Fr < Fq
-
-            poseidon.absorb(&FpVar::new_witness(ns!(cs.clone(), "scalar fq"), || {
-                Ok(scalar_in_fq)
-            })?)?;
+            let scalar_var = FpVar::new_witness(ns!(cs.clone(), "scalar fq"), || Ok(scalar_in_fq))?;
+            poseidon.absorb(&scalar_var)?;
+            // Pass from Fq(Fp) -> Bits<Fq)[0..Fp]
+            for (fqbase, nonnative_base) in scalar_var
+                .to_bits_le()?
+                .iter()
+                .zip(bits_var.iter())
+                .take(I::Fr::size_in_bits())
+            {
+                fqbase.enforce_equal(nonnative_base)?;
+            }
+            // enforce the rest is 0 so there is no different witness possible
+            // for the Fq(Fp) var
+            let diff = bits_var.len() - I::Fr::size_in_bits();
+            let false_var = Boolean::constant(false);
+            for unconstrained_bit in bits_var.iter().rev().take(diff) {
+                unconstrained_bit.enforce_equal(&false_var)?;
+            }
+        }
+        for e in ids.iter() {
+            poseidon.absorb(&e)?;
         }
         /*if let Ok(v) = poseidon*/
         //.squeeze_field_elements(1)
@@ -320,13 +337,25 @@ where
                 s.to_bits_le()
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let ids_bits = self
+        let ids_fq = self
             .conf
             .ids()
             .iter()
             .map(|i| {
-                let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
-                Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+                let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
+                    &i.into_repr().to_bits_le(),
+                ))
+                .unwrap(); // because Fr < Fq
+                FpVar::new_witness(ns!(cs.clone(), "scalar fq"), || Ok(scalar_in_fq))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let ids_bits = ids_fq
+            .iter()
+            .map(|i| {
+                //let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
+                //Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+                i.to_bits_le()
+                    .and_then(|bits| Ok(bits.into_iter().take(I::Fr::size_in_bits()).collect()))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -349,7 +378,7 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.check_inputs(cs.clone(), &share_bits, &coeffs_commit, &ids_bits)?;
+        self.check_inputs(cs.clone(), &share_bits, &coeffs_commit, &ids_fq)?;
 
         // we then give the same shares to both
         self.verify_feldman_commitments(cs.clone(), &share_bits, &coeffs_commit, &g)?;
@@ -407,27 +436,27 @@ mod tests {
             poseidon_params: crate::poseidon::get_bls12377_fq_params(2),
         };
         let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
-        /*let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();*/
-        //let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
-        //let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
-        //let input = vec![circuit.input_commitment()];
-        //let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
-        //ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
-
-        use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
-        use tracing_subscriber::layer::SubscriberExt;
-        let mut layer = ConstraintLayer::default();
-        layer.mode = TracingMode::OnlyConstraints;
-        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
+        let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
+        let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
         let input = vec![circuit.input_commitment()];
-        let _guard = tracing::subscriber::set_default(subscriber);
-        let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
-        circuit.generate_constraints(cs.clone()).unwrap();
-        println!("Num constraints: {}", cs.num_constraints());
-        assert!(
-            cs.is_satisfied().unwrap(),
-            "Constraints not satisfied: {}",
-            cs.which_is_unsatisfied().unwrap().unwrap_or_default()
-        );
+        let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
+        ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
+
+        /*use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};*/
+        //use tracing_subscriber::layer::SubscriberExt;
+        //let mut layer = ConstraintLayer::default();
+        //layer.mode = TracingMode::OnlyConstraints;
+        //let subscriber = tracing_subscriber::Registry::default().with(layer);
+        //let input = vec![circuit.input_commitment()];
+        //let _guard = tracing::subscriber::set_default(subscriber);
+        //let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
+        //circuit.generate_constraints(cs.clone()).unwrap();
+        //println!("Num constraints: {}", cs.num_constraints());
+        //assert!(
+        //cs.is_satisfied().unwrap(),
+        //"Constraints not satisfied: {}",
+        //cs.which_is_unsatisfied().unwrap().unwrap_or_default()
+        /*);*/
     }
 }

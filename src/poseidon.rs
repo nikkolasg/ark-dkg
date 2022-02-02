@@ -132,14 +132,29 @@ mod test {
                 Ok(scalar)
             })
             .unwrap();
-        let bits_scalar_nonnative = nonnative_scalar.to_bits_le().unwrap();
+        let mut bits_scalar_nonnative = nonnative_scalar.to_bits_le().unwrap();
         for (var, nonnative) in bits_scalar_var
             .iter()
-            .take(256)
+            .take(Fr::size_in_bits())
             .zip(bits_scalar_nonnative.iter())
         {
             var.enforce_equal(nonnative).unwrap();
         }
+        println!(
+            "Size of nonnativescalar bits: {}",
+            bits_scalar_nonnative.len()
+        );
+        println!("Size of Fr::size_in_bits() {}", Fr::size_in_bits());
+        let diff = bits_scalar_nonnative.len() - Fr::size_in_bits();
+        bits_scalar_nonnative.reverse();
+        println!(
+            "Values of the diffs -> {:?}",
+            bits_scalar_nonnative
+                .iter()
+                .take(diff)
+                .map(|c| c.value().unwrap())
+                .collect::<Vec<_>>()
+        );
         //println!(
         //"number of basefield elements: {} {:?} {}",
         //scalar_in_fq_var.limbs.len(),
