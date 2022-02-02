@@ -82,8 +82,9 @@ fn main() {
                 cs.num_constraints()
             };
 
-            println!("\tAllocating PolyCircuit & Groth16 setup ...");
+            println!("\tAllocating DKGCircuit for Groth16 setup ...");
             let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
+            println!("\tDKGCircuit Groth16 setup ...");
             let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
             let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
 
@@ -98,7 +99,7 @@ fn main() {
             br.proving = start.elapsed().as_millis();
 
             let start = Instant::now();
-            println!("\tProving...");
+            println!("\tVerifying...");
             ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
             br.verifying = start.elapsed().as_millis();
             writer
