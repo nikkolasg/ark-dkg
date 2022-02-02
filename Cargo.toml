@@ -27,9 +27,10 @@ tracing = { version = "0.1", default-features = false, features = [ "attributes"
 tracing-subscriber = { version = "0.2" }
 
 [features]
-default = [ "std", "parallel" ]
-std = [ "ark-ff/std", "ark-ec/std", "ark-std/std" ]
-parallel = [ "std", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel" ]
+default = ["asm", "parallel", "std"]
+asm = ["ark-ff/asm"]
+parallel = [ "std", "ark-ff/parallel", "ark-std/parallel", "ark-ec/parallel"]
+std = ["ark-ff/std", "ark-ec/std", "ark-std/std", "ark-relations/std", "ark-serialize/std"]
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
