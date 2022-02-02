@@ -135,10 +135,10 @@ where
         for c in self.commitments.iter() {
             sponge.absorb(&c.into_affine());
         }
-        println!(
-            "native: after Commit {:?}",
-            sponge.squeeze_field_elements::<I::Fq>(1).remove(0)
-        );
+        /*println!(*/
+            //"native: after Commit {:?}",
+            //sponge.squeeze_field_elements::<I::Fq>(1).remove(0)
+        /*)*/;
 
         // assertion is more complex than that but for PoC purpose we'll keep
         // like that. We want to do like in
@@ -154,10 +154,10 @@ where
             //let bits = &e.into_repr().to_bits_le();
             sponge.absorb(&scalar_in_fq);
         }
-        println!(
-            "native: after Fr {:?}",
-            sponge.squeeze_field_elements::<I::Fq>(1).remove(0)
-        );
+        /*println!(*/
+        //"native: after Fr {:?}",
+        //sponge.squeeze_field_elements::<I::Fq>(1).remove(0)
+        //);
 
         sponge.squeeze_field_elements(1).remove(0)
     }
@@ -180,15 +180,16 @@ where
         for c in coeffs_commit.iter() {
             poseidon.absorb(c)?;
         }
-        if let Ok(v) = poseidon
-            .squeeze_field_elements(1)
-            .and_then(|mut v| Ok(v.remove(0)))
-        {
-            println!("Constraint after commit: {:?}", v.value().unwrap());
-        }
+        /*if let Ok(v) = poseidon*/
+        //.squeeze_field_elements(1)
+        //.and_then(|mut v| Ok(v.remove(0)))
+        //{
+        //println!("Constraint after commit: {:?}", v.value().unwrap());
+        /*}*/
 
         //for e in shares.iter().chain(ids.iter()) {
         for e in self.shares.iter().chain(self.conf.ids().iter()) {
+            // TODO why can't we simply use 1 Fq for an Fr
             let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
                 &e.into_repr().to_bits_le(),
             ))
@@ -198,12 +199,12 @@ where
                 Ok(scalar_in_fq)
             })?)?;
         }
-        if let Ok(v) = poseidon
-            .squeeze_field_elements(1)
-            .and_then(|mut v| Ok(v.remove(0)))
-        {
-            println!("Constraint after Fr: {:?}", v.value().unwrap());
-        }
+        /*if let Ok(v) = poseidon*/
+        //.squeeze_field_elements(1)
+        //.and_then(|mut v| Ok(v.remove(0)))
+        //{
+        //println!("Constraint after Fr: {:?}", v.value().unwrap());
+        //}
 
         let exp = poseidon
             .squeeze_field_elements(1)
@@ -365,10 +366,8 @@ mod tests {
     use ark_bls12_377::{constraints::PairingVar as IV, Bls12_377 as I, Fr};
     use ark_bw6_761::BW6_761 as O;
     use ark_groth16::Groth16;
-    use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::UniformRand;
-    use tracing_subscriber::layer::SubscriberExt;
 
     #[test]
     fn dkg() {
@@ -408,19 +407,19 @@ mod tests {
             poseidon_params: crate::poseidon::get_bls12377_fq_params(2),
         };
         let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
-
         /*let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();*/
         //let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
         //let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
         //let input = vec![circuit.input_commitment()];
         //let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
+        //ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
 
-        /*ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();*/
-
-        let input = vec![circuit.input_commitment()];
+        use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
+        use tracing_subscriber::layer::SubscriberExt;
         let mut layer = ConstraintLayer::default();
         layer.mode = TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
+        let input = vec![circuit.input_commitment()];
         let _guard = tracing::subscriber::set_default(subscriber);
         let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
         circuit.generate_constraints(cs.clone()).unwrap();

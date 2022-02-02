@@ -54,10 +54,7 @@ pub fn get_bls12377_fq_params(_rate: usize) -> PoseidonParameters<Fq> {
 
 #[cfg(test)]
 mod test {
-    use ark_bls12_377::{
-        constraints::{G1Var, PairingVar as IV},
-        Bls12_377 as I, Fq, Fr, G1Projective,
-    };
+    use ark_bls12_377::{constraints::G1Var, Fq, Fr, G1Projective};
     use ark_ec::ProjectiveCurve;
 
     use super::*;
@@ -65,10 +62,7 @@ mod test {
     use ark_nonnative_field::AllocatedNonNativeFieldVar;
 
     use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar, prelude::*};
-    use ark_relations::{
-        ns,
-        r1cs::{ConstraintLayer, ConstraintSystem, TracingMode},
-    };
+    use ark_relations::{ns, r1cs::ConstraintSystem};
     use ark_sponge::{
         constraints::CryptographicSpongeVar,
         poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
@@ -108,11 +102,11 @@ mod test {
         // TODO rename that to into_affine
         .to_affine()
         .unwrap();
-        sponge_var.absorb(&point_var_affine);
+        sponge_var.absorb(&point_var_affine).unwrap();
 
         let scalar_var =
             FpVar::new_witness(ns!(cs.clone(), "scalar var"), || Ok(scalar_in_fq)).unwrap();
-        sponge_var.absorb(&scalar_var);
+        sponge_var.absorb(&scalar_var).unwrap();
         let bits_scalar_var: Vec<Boolean<Fq>> = scalar_var.to_bits_le().unwrap();
         // checking if bits representation is the same
         /*let bits_scalar_native = scalar.into_repr().to_bits_le();*/

@@ -24,6 +24,27 @@ fn main() {
     let mut writer = csv::Writer::from_path("dkg_snark.csv").expect("unable to open csv writer");
     //let n_sizes = vec![50, 100, 300, 500, 700, 900, 1100];
     let n_sizes = [5];
+    let max_n = n_sizes.last();
+    let max_thr = max_n / 2 + 1;
+    let ids = (0..max_n)
+        .map(|i| Fr::from((i + 1) as u32))
+        .collect::<Vec<_>>();
+    let participants = (0..max_n)
+        .map(
+            |_| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
+        )
+        .zip(ids.iter())
+        .map(|(p, idx)| Node {
+            idx: idx.clone(),
+            key: p,
+        })
+        .collect::<Vec<_>>();
+    let secret = Fr::rand(&mut rng);
+    let coeffs = std::iter::once(secret.clone())
+        .chain((0..max_thr - 2).map(|_| Fr::rand(&mut rng)))
+        .collect::<Vec<_>>();
+    let params = poseidon::get_bls12377_fq_params(2);
+
     let _values = n_sizes
         .into_iter()
         .map(|n| {
@@ -33,24 +54,12 @@ fn main() {
             let threshold = degree + 1;
             br.n = n as usize;
             br.thr = threshold;
-            let secret = Fr::rand(&mut rng);
-            let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
-            let participants = (0..n)
-                .map(
-                    |_| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
-                )
-                .zip(ids.iter())
-                .map(|(p, idx)| Node {
-                    idx: idx.clone(),
-                    key: p,
-                })
-                .collect::<Vec<_>>();
             // create pk, vk for inner proof
+            let ids = ids.iter().take(n).collect();
+            let participants = participants.iter().take(n).collect();
+            let coeffs = coeffs.iter().take(threshold).collect();
             let (pk, vk) = {
-                let coeffs = std::iter::once(secret.clone())
-                    .chain((0..threshold - 2).map(|_| Fr::rand(&mut rng)))
-                    .collect::<Vec<_>>();
-                let pe = PolyCircuit::<Fr>::new(coeffs, ids.clone());
+                let pe = PolyCircuit::<Fr>::new(coeffs.clone(), ids);
                 // XXX is there a way to get this info without running twice the
                 // QAP transformation ?
                 let cs = ConstraintSystem::<<I as PairingEngine>::Fr>::new_ref();
@@ -68,7 +77,7 @@ fn main() {
                 participants: participants,
                 inner_pk: pk,
                 inner_vk: pvk,
-                poseidon_params: poseidon::get_bls12377_fq_params(2),
+                poseidon_params: params.clone(),
             };
             let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
             let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
@@ -91,7 +100,7 @@ fn main() {
             writer
                 .serialize(br)
                 .expect("unable to write results to csv");
+            writer.flush().expect("wasn't able to flush");
         })
         .collect::<Vec<_>>();
-    writer.flush().expect("wasn't able to flush");
 }

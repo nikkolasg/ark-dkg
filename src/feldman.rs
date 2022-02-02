@@ -112,7 +112,7 @@ mod tests {
         let mut rng = ark_std::test_rng();
         let cs = ConstraintSystem::<<E as PairingEngine>::Fq>::new_ref();
         let gen = G1Projective::rand(&mut rng);
-        let gen_constraints = G1Var::new_variable_omit_prime_order_check(
+        let _gen_constraints = G1Var::new_variable_omit_prime_order_check(
             ark_relations::ns!(cs, "generator"),
             || Ok(gen),
             AllocationMode::Input,
