@@ -55,7 +55,7 @@ where
         let g = P::G1Var::new_variable_omit_prime_order_check(
             ark_relations::ns!(cs, "generator"),
             || Ok(self.g),
-            AllocationMode::Input,
+            AllocationMode::Witness,
         )?;
         let coeffs: Vec<(_, _)> = self
             .pubs
@@ -94,18 +94,38 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_bls12_377::{constraints::PairingVar as EV, Bls12_377 as E};
+    use ark_bls12_377::{
+        constraints::{G1Var, PairingVar as EV},
+        Bls12_377 as E, G1Projective,
+    };
     use ark_bw6_761::BW6_761 as P;
     use ark_ec::ProjectiveCurve;
+    use ark_ff::ToConstraintField;
     use ark_groth16::Groth16;
     //use ark_relations::r1cs::ConstraintSystem;
+    use ark_relations::r1cs::ConstraintSystem;
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use ark_std::UniformRand;
 
     #[test]
-    fn feldman() {
+    fn to_constraints() {
         let mut rng = ark_std::test_rng();
-        let n = 500;
+        let cs = ConstraintSystem::<<E as PairingEngine>::Fq>::new_ref();
+        let gen = G1Projective::rand(&mut rng);
+        let _gen_constraints = G1Var::new_variable_omit_prime_order_check(
+            ark_relations::ns!(cs, "generator"),
+            || Ok(gen),
+            AllocationMode::Input,
+        )
+        .unwrap();
+        let gen_inputs = gen.to_field_elements();
+        println!("Native to_field_elements: {:?}", gen_inputs);
+    }
+
+    #[test]
+    fn feldman_circuit() {
+        let mut rng = ark_std::test_rng();
+        let n = 3;
         let secrets = (0..n)
             .map(|_| <E as PairingEngine>::Fr::rand(&mut rng))
             .collect::<Vec<_>>();
@@ -118,11 +138,27 @@ mod tests {
         //assert!(cs.is_satisfied().unwrap());
         //
         //
-        let circuit2 = CommitCircuit::<E, EV>::new(secrets.clone(), gen.clone()); // why can't I clne :(
-        let circuit3 = CommitCircuit::<E, EV>::new(secrets, gen.clone()); // why can't I clne :(
-        let (pk, vk) = Groth16::<P>::setup(circuit2, &mut rng).unwrap();
-        let proof = Groth16::prove(&pk, circuit3, &mut rng).unwrap();
-        let valid_proof = Groth16::verify(&vk, &vec![], &proof).unwrap();
-        assert!(valid_proof);
+        let circuit = CommitCircuit::<E, EV>::new(secrets.clone(), gen.clone());
+        let (pk, vk) = Groth16::<P>::setup(circuit, &mut rng).unwrap();
+        let circuit = CommitCircuit::<E, EV>::new(secrets.clone(), gen.clone());
+        let pub_coeffs = circuit.pubs.clone();
+        let proof = Groth16::prove(&pk, circuit, &mut rng).unwrap();
+
+        let inputs = pub_coeffs
+            .iter()
+            .flat_map(|p| p.to_field_elements().unwrap())
+            .collect::<Vec<_>>();
+        println!("inputs {:?}", inputs);
+        assert!(Groth16::verify(&vk, &inputs, &proof).unwrap());
+
+        /*let gen = G1Projective::prime_subgroup_generator();*/
+        //let inputs = vec![gen.x, gen.y, gen.z];
+        //let valid_proof = Groth16::verify(&vk, &inputs, &proof).unwrap();
+        //assert!(valid_proof);
+        //let inputs2 = gen.to_field_elements().unwrap();
+        //println!("FIRST {:?}", inputs);
+        //println!("SECOND {:?}", inputs2);
+        //let valid_proof = Groth16::verify(&vk, &inputs2, &proof).unwrap();
+        /*assert!(valid_proof);*/
     }
 }

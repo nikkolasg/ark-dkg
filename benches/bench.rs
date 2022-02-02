@@ -2,7 +2,7 @@ use ark_bls12_377::{constraints::PairingVar as IV, Bls12_377 as I, Fr};
 use ark_bw6_761::BW6_761 as O;
 use ark_ec::PairingEngine;
 use ark_groth16::Groth16;
-use ark_relations::r1cs::{ConstraintLayer, ConstraintSynthesizer, ConstraintSystem, TracingMode};
+use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use ark_std::UniformRand;
 use dkg_snark::*;
@@ -22,8 +22,29 @@ struct BenchResult {
 fn main() {
     let mut rng = ark_std::test_rng();
     let mut writer = csv::Writer::from_path("dkg_snark.csv").expect("unable to open csv writer");
-    //let n_sizes = vec![50, 100, 300, 500, 700, 900, 1100];
-    let n_sizes = [5];
+    let n_sizes = vec![50, 100, 500, 1000];
+    //let n_sizes = [5];
+    let max_n = *n_sizes.last().unwrap();
+    let max_thr = max_n / 2 + 1;
+    let ids = (0..max_n)
+        .map(|i| Fr::from((i + 1) as u32))
+        .collect::<Vec<_>>();
+    let participants = (0..max_n)
+        .map(
+            |_| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
+        )
+        .zip(ids.iter())
+        .map(|(p, idx)| Node {
+            idx: idx.clone(),
+            key: p,
+        })
+        .collect::<Vec<_>>();
+    let secret = Fr::rand(&mut rng);
+    let coeffs = std::iter::once(secret.clone())
+        .chain((0..max_thr - 2).map(|_| Fr::rand(&mut rng)))
+        .collect::<Vec<Fr>>();
+    let params = poseidon::get_bls12377_fq_params(2);
+
     let _values = n_sizes
         .into_iter()
         .map(|n| {
@@ -33,24 +54,12 @@ fn main() {
             let threshold = degree + 1;
             br.n = n as usize;
             br.thr = threshold;
-            let secret = Fr::rand(&mut rng);
-            let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
-            let participants = (0..n)
-                .map(
-                    |_| <I as PairingEngine>::G1Projective::rand(&mut rng), // dont care for the moment
-                )
-                .zip(ids.iter())
-                .map(|(p, idx)| Node {
-                    idx: idx.clone(),
-                    key: p,
-                })
-                .collect::<Vec<_>>();
             // create pk, vk for inner proof
+            let ids = ids.iter().take(n).cloned().collect();
+            let participants = participants.iter().take(n).cloned().collect();
+            let coeffs = coeffs.iter().take(threshold).cloned().collect::<Vec<_>>();
             let (pk, vk) = {
-                let coeffs = std::iter::once(secret.clone())
-                    .chain((0..threshold - 2).map(|_| Fr::rand(&mut rng)))
-                    .collect::<Vec<_>>();
-                let pe = PolyCircuit::<Fr>::new(coeffs, ids.clone());
+                let pe = PolyCircuit::<Fr>::new(coeffs.clone(), ids);
                 // XXX is there a way to get this info without running twice the
                 // QAP transformation ?
                 let cs = ConstraintSystem::<<I as PairingEngine>::Fr>::new_ref();
@@ -68,7 +77,7 @@ fn main() {
                 participants: participants,
                 inner_pk: pk,
                 inner_vk: pvk,
-                poseidon_params: poseidon::get_bls12377_fq_params(2),
+                poseidon_params: params.clone(),
             };
             let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
             let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
@@ -76,6 +85,7 @@ fn main() {
             br.total_constraints = cs.num_constraints();
 
             let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
+            let input = vec![circuit.input_commitment()];
             let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
             let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
             let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
@@ -86,12 +96,13 @@ fn main() {
             br.proving = start.elapsed().as_millis();
 
             let start = Instant::now();
-            ark_groth16::verify_proof(&opvk, &oproof, &vec![]).unwrap();
+
+            ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
             br.verifying = start.elapsed().as_millis();
             writer
                 .serialize(br)
                 .expect("unable to write results to csv");
+            writer.flush().expect("wasn't able to flush");
         })
         .collect::<Vec<_>>();
-    writer.flush().expect("wasn't able to flush");
 }
