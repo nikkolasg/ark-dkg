@@ -72,10 +72,12 @@ fn main() {
                 inner_vk: pvk,
                 poseidon_params: params.clone(),
             };
-            let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
-            let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
-            circuit.generate_constraints(cs.clone()).unwrap();
-            br.total_constraints = cs.num_constraints();
+            br.total_constraints = {
+                let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
+                let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
+                circuit.generate_constraints(cs.clone()).unwrap();
+                cs.num_constraints()
+            };
 
             let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
             let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
