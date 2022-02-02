@@ -35,6 +35,7 @@ fn main() {
             let threshold = degree + 1;
             br.n = n as usize;
             br.thr = threshold;
+            println!("\tAllocating ids & coeffs...");
             // create pk, vk for inner proof
             let ids = (0..n).map(|i| Fr::from((i + 1) as u32)).collect::<Vec<_>>();
             let participants = (0..n)
@@ -52,6 +53,7 @@ fn main() {
                 .chain((0..threshold - 2).map(|_| Fr::rand(&mut rng)))
                 .collect::<Vec<Fr>>();
 
+            println!("\tAllocating PolyCircuit pk & vk...");
             let (pk, vk) = {
                 let pe = PolyCircuit::<Fr>::new(coeffs.clone(), ids);
                 // XXX is there a way to get this info without running twice the
@@ -73,25 +75,30 @@ fn main() {
                 poseidon_params: params.clone(),
             };
             br.total_constraints = {
+                println!("\tAllocating DKGCircuit for constraints...");
                 let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
                 let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
                 circuit.generate_constraints(cs.clone()).unwrap();
                 cs.num_constraints()
             };
 
+            println!("\tAllocating PolyCircuit & Groth16 setup ...");
             let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
             let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
             let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
+
+            println!("\tAllocating DKGCircuit final instance...");
             let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
             let input = vec![circuit.input_commitment()];
 
             // TODO make a macro
             let start = Instant::now();
+            println!("\tProving...");
             let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
             br.proving = start.elapsed().as_millis();
 
             let start = Instant::now();
-
+            println!("\tProving...");
             ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
             br.verifying = start.elapsed().as_millis();
             writer
