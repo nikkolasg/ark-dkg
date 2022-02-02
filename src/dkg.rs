@@ -289,7 +289,6 @@ where
 
     fn verify_feldman_commitments(
         &self,
-        cs: ConstraintSystemRef<I::Fq>,
         shares: &[Vec<Boolean<I::Fq>>],
         coeffs_commit: &[IV::G1Var],
         gen: &IV::G1Var,
@@ -381,7 +380,7 @@ where
         self.check_inputs(cs.clone(), &share_bits, &coeffs_commit, &ids_fq)?;
 
         // we then give the same shares to both
-        self.verify_feldman_commitments(cs.clone(), &share_bits, &coeffs_commit, &g)?;
+        self.verify_feldman_commitments(&share_bits, &coeffs_commit, &g)?;
         self.encryption
             .verify_encryption(cs.clone(), &share_fields)?;
         self.check_evaluation_proof(cs.clone(), share_bits, ids_bits)?;
