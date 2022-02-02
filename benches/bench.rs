@@ -82,7 +82,7 @@ fn main() {
                 cs.num_constraints()
             };
 
-            let (opv, opvk) = {
+            let (opk, opvk) = {
                 println!("\tAllocating DKGCircuit for Groth16 setup ...");
                 let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
                 println!("\tDKGCircuit Groth16 setup ...");
