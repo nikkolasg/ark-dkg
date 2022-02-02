@@ -27,10 +27,10 @@ where
     C::BaseField: PrimeField, // Prime for constraint CV
     CV: CurveVar<C, C::BaseField> + AllocVar<C, C::BaseField>,
 {
-    r: Vec<C::ScalarField>,
+    r: C::ScalarField,
     pub_keys: Vec<C>,
     enc: Vec<C::ScalarField>, // H(g^y^r) + msg
-    grs: Vec<C>,
+    gr: C,
     pub_rs: Vec<C>,
     msgs: Vec<C::ScalarField>,
     params: PoseidonParameters<C::BaseField>,
@@ -50,21 +50,12 @@ where
         params: PoseidonParameters<C::BaseField>,
         rng: &mut R,
     ) -> Self {
-        let rs = (0..pub_keys.len())
-            .map(|_| C::ScalarField::rand(rng))
-            .collect::<Vec<_>>();
-        let grs = rs
+        let r = C::ScalarField::rand(rng);
+        let mut gr = C::prime_subgroup_generator();
+        gr.mul_assign(r.clone());
+        let pubrs = pub_keys
             .iter()
-            .map(|r| {
-                let mut g = C::prime_subgroup_generator();
-                g.mul_assign(r.clone());
-                g
-            })
-            .collect::<Vec<_>>();
-        let pubrs = rs
-            .iter()
-            .zip(pub_keys.iter())
-            .map(|(r, p)| {
+            .map(|p| {
                 let mut pp = p.clone();
                 pp.mul_assign(r.clone());
                 pp
@@ -84,11 +75,11 @@ where
             })
             .collect::<Vec<_>>();
         Self {
-            r: rs,
+            r: r,
             msgs: msgs,
             pub_keys: pub_keys,
             enc: enc,
-            grs: grs,
+            gr: gr,
             pub_rs: pubrs,
             params: params,
             _curvevar: PhantomData,
@@ -106,30 +97,17 @@ where
             AllocationMode::Witness,
         )?;
         // verify consistency with grs
-        let rvars = self
-            .r
-            .iter()
-            .map(|r| {
-                let bits: Vec<bool> = BitIteratorLE::new(r.into_repr().as_ref().to_vec()).collect();
-                let rbits = Vec::new_witness(ark_relations::ns!(cs, "rbits"), || Ok(bits))?;
-                Ok(rbits)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let grvars = self
-            .grs
-            .iter()
-            .map(|gr| {
-                CV::new_variable_omit_prime_order_check(
-                    ark_relations::ns!(cs, "gr"),
-                    || Ok(gr.clone()),
-                    AllocationMode::Witness,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        for (rvar, grvar) in rvars.iter().zip(grvars.iter()) {
-            let exp = g.scalar_mul_le(rvar.iter())?;
-            grvar.enforce_equal(&exp)?;
-        }
+        let riter: Vec<bool> = BitIteratorLE::new(self.r.into_repr().as_ref().to_vec()).collect();
+        let rbits = Vec::new_witness(ark_relations::ns!(cs, "rbits"), || Ok(riter))?;
+
+        let grvar = CV::new_variable_omit_prime_order_check(
+            ark_relations::ns!(cs, "gr"),
+            || Ok(self.gr.clone()),
+            AllocationMode::Witness,
+        )?;
+
+        let exp = g.scalar_mul_le(rbits.iter())?;
+        grvar.enforce_equal(&exp)?;
 
         // now do the encryption
         // 1. multiply each public key by corresponding "r"
@@ -159,8 +137,7 @@ where
 
         let exp_pubrs = pubs
             .iter()
-            .zip(rvars.iter())
-            .map(|(p, r)| p.scalar_mul_le(r.iter()))
+            .map(|p| p.scalar_mul_le(rbits.iter()))
             .collect::<Result<Vec<_>, _>>()?;
         for (pubr, exp) in pubrs.iter().zip(exp_pubrs.iter()) {
             pubr.enforce_equal(exp)?;

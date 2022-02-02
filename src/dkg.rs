@@ -435,27 +435,28 @@ mod tests {
             poseidon_params: crate::poseidon::get_bls12377_fq_params(2),
         };
         let circuit = DKGCircuit::<I, IV>::new(config.clone(), &mut rng).unwrap();
-        let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
-        let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
-        let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
-        let input = vec![circuit.input_commitment()];
-        let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
-        ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
 
-        /*use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};*/
-        //use tracing_subscriber::layer::SubscriberExt;
-        //let mut layer = ConstraintLayer::default();
-        //layer.mode = TracingMode::OnlyConstraints;
-        //let subscriber = tracing_subscriber::Registry::default().with(layer);
+        //let (opk, ovk) = Groth16::setup(circuit, &mut rng).unwrap();
+        //let opvk = Groth16::<O>::process_vk(&ovk).unwrap();
+        //let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
         //let input = vec![circuit.input_commitment()];
-        //let _guard = tracing::subscriber::set_default(subscriber);
-        //let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
-        //circuit.generate_constraints(cs.clone()).unwrap();
-        //println!("Num constraints: {}", cs.num_constraints());
-        //assert!(
-        //cs.is_satisfied().unwrap(),
-        //"Constraints not satisfied: {}",
-        //cs.which_is_unsatisfied().unwrap().unwrap_or_default()
-        /*);*/
+        //let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
+        /*ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();*/
+
+        use ark_relations::r1cs::{ConstraintLayer, ConstraintSystem, TracingMode};
+        use tracing_subscriber::layer::SubscriberExt;
+        let mut layer = ConstraintLayer::default();
+        layer.mode = TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        let input = vec![circuit.input_commitment()];
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let cs = ConstraintSystem::<<I as PairingEngine>::Fq>::new_ref();
+        circuit.generate_constraints(cs.clone()).unwrap();
+        println!("Num constraints: {}", cs.num_constraints());
+        assert!(
+            cs.is_satisfied().unwrap(),
+            "Constraints not satisfied: {}",
+            cs.which_is_unsatisfied().unwrap().unwrap_or_default()
+        );
     }
 }
