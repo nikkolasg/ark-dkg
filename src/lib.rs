@@ -14,4 +14,3 @@ mod eval_nonnative;
 mod feldman;
 mod parameters;
 pub mod poseidon;
-//mod utils;

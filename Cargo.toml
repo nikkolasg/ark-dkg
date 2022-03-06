@@ -50,3 +50,4 @@ ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/", rev = "a2a5ac
 name = "bench"
 path = "benches/bench.rs"
 harness = false
+debug = true
