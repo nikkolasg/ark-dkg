@@ -29,7 +29,7 @@ where
 {
     r: C::ScalarField,
     pub_keys: Vec<C>,
-    enc: Vec<C::ScalarField>, // H(g^y^r) + msg
+    pub enc: Vec<C::ScalarField>, // H(g^y^r) + msg
     gr: C,
     pub_rs: Vec<C>,
     msgs: Vec<C::ScalarField>,
@@ -90,6 +90,7 @@ where
         &self,
         cs: ConstraintSystemRef<C::BaseField>,
         native_msgs: &[NonNativeFieldVar<C::ScalarField, C::BaseField>],
+        enc_shares: &[NonNativeFieldVar<C::ScalarField, C::BaseField>],
     ) -> Result<(), SynthesisError> {
         let g = CV::new_variable_omit_prime_order_check(
             ark_relations::ns!(cs, "generator"),
@@ -159,8 +160,17 @@ where
                     .and_then(|r| Ok(r.0[0].clone() + msg))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let expecteds = self
-            .enc
+        for (comp, exp) in computeds.iter().zip(enc_shares.iter()) {
+            comp.enforce_equal(exp)?;
+        }
+        Ok(())
+    }
+
+    pub fn instantiate_encrypted_shares(
+        &self,
+        cs: ConstraintSystemRef<C::BaseField>,
+    ) -> Result<Vec<NonNativeFieldVar<C::ScalarField, C::BaseField>>, SynthesisError> {
+        self.enc
             .iter()
             .map(|exp| {
                 NonNativeFieldVar::<C::ScalarField, C::BaseField>::new_witness(
@@ -168,11 +178,7 @@ where
                     || Ok(exp),
                 )
             })
-            .collect::<Result<Vec<_>, _>>()?;
-        for (comp, exp) in computeds.iter().zip(expecteds.iter()) {
-            comp.enforce_equal(exp)?;
-        }
-        Ok(())
+            .collect::<Result<Vec<_>, _>>()
     }
 }
 
@@ -197,8 +203,8 @@ where
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-
-        self.verify_encryption(cs, &native_msgs)
+        let encrypted_shares = self.instantiate_encrypted_shares(cs.clone())?;
+        self.verify_encryption(cs, &native_msgs, &encrypted_shares)
     }
 }
 

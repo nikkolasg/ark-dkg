@@ -117,6 +117,7 @@ where
             conf.poseidon_params.clone(),
             &mut rng,
         );
+
         Ok(Self {
             conf: conf,
             inner_proof: proof,
@@ -145,7 +146,7 @@ where
         // primitive_constraints/snark/constraints style where they decide if a
         // element can be constraints in the other one.
         assert!(I::Fr::size_in_bits() <= I::Fq::size_in_bits());
-        for e in self.shares.iter().chain(self.conf.ids().iter()) {
+        for e in self.encryption.enc.iter().chain(self.conf.ids().iter()) {
             let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
                 &e.into_repr().to_bits_le(),
             ))
@@ -162,10 +163,13 @@ where
         sponge.squeeze_field_elements(1).remove(0)
     }
 
+    /// check_inputs takes the list of encrypted shares and the commitment of
+    /// the coefficients and the ids and hash them all in circuit in the same
+    /// way as `input_commitment` is doing outside of the circuit.
     pub fn check_inputs(
         &self,
         cs: ConstraintSystemRef<I::Fq>,
-        shares: &[Vec<Boolean<I::Fq>>],
+        enc_shares: &[NonNativeFieldVar<I::Fr, I::Fq>],
         coeffs_commit: &[IV::G1Var],
         ids: &[FpVar<I::Fq>],
     ) -> Result<(), SynthesisError> {
@@ -188,7 +192,10 @@ where
         /*}*/
 
         //for e in shares.iter().chain(ids.iter()) {
-        for (native, bits_var) in self.shares.iter().zip(shares.iter()) {
+        // Here we introduce the encrypted direclty as a Fq that we hash in a
+        // single pass, and then we compare the bits representation of this and
+        // the nonnative field var.
+        for (native, nonnative) in self.encryption.enc.iter().zip(enc_shares.iter()) {
             // TODO why can't we simply use 1 Fq for an Fr
             let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
                 &native.into_repr().to_bits_le(),
@@ -197,19 +204,20 @@ where
             let scalar_var = FpVar::new_witness(ns!(cs.clone(), "scalar fq"), || Ok(scalar_in_fq))?;
             poseidon.absorb(&scalar_var)?;
             // Pass from Fq(Fp) -> Bits<Fq)[0..Fp]
-            for (fqbase, nonnative_base) in scalar_var
-                .to_bits_le()?
+            let native_bits = scalar_var.to_bits_le()?;
+            let nonnative_bits = nonnative.to_bits_le()?;
+            for (fqbase, nonnative_base) in native_bits
                 .iter()
-                .zip(bits_var.iter())
+                .zip(nonnative_bits.iter())
                 .take(I::Fr::size_in_bits())
             {
                 fqbase.enforce_equal(nonnative_base)?;
             }
             // enforce the rest is 0 so there is no different witness possible
             // for the Fq(Fp) var
-            let diff = bits_var.len() - I::Fr::size_in_bits();
+            let diff = native_bits.len() - I::Fr::size_in_bits();
             let false_var = Boolean::constant(false);
-            for unconstrained_bit in bits_var.iter().rev().take(diff) {
+            for unconstrained_bit in native_bits.iter().rev().take(diff) {
                 unconstrained_bit.enforce_equal(&false_var)?;
             }
         }
@@ -328,11 +336,12 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
         let share_bits = share_fields
-            //self.shares
             .iter()
             .map(|s| {
-                //let bits: Vec<bool> = BitIteratorLE::new(s.into_repr().as_ref().to_vec()).collect();
-                //Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+                // we transform to bits so we can hash it. We could have used
+                // the Fq representation into the hash function but there is no
+                // method associated to do this outside of the circuit so
+                // compatibility would have been "harder".
                 s.to_bits_le()
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -341,6 +350,7 @@ where
             .ids()
             .iter()
             .map(|i| {
+                // we embed the Fr into a Fq variable and it fits because r << q
                 let scalar_in_fq = &I::Fq::from_repr(<I::Fq as PrimeField>::BigInt::from_bits_le(
                     &i.into_repr().to_bits_le(),
                 ))
@@ -351,8 +361,9 @@ where
         let ids_bits = ids_fq
             .iter()
             .map(|i| {
-                //let bits: Vec<bool> = BitIteratorLE::new(i.into_repr().as_ref().to_vec()).collect();
-                //Vec::new_witness(ark_relations::ns!(cs, "shares"), || Ok(bits))
+                // However, when taking the bits, we must only take Fr bit size
+                // because when doing it outside of the circuit, we only hash
+                // Fr::bits
                 i.to_bits_le()
                     .and_then(|bits| Ok(bits.into_iter().take(I::Fr::size_in_bits()).collect()))
             })
@@ -376,13 +387,14 @@ where
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let encrypted_shares = self.encryption.instantiate_encrypted_shares(cs.clone())?;
 
-        self.check_inputs(cs.clone(), &share_bits, &coeffs_commit, &ids_fq)?;
+        self.check_inputs(cs.clone(), &encrypted_shares, &coeffs_commit, &ids_fq)?;
 
         // we then give the same shares to both
         self.verify_feldman_commitments(&share_bits, &coeffs_commit, &g)?;
         self.encryption
-            .verify_encryption(cs.clone(), &share_fields)?;
+            .verify_encryption(cs.clone(), &share_fields, &encrypted_shares)?;
         self.check_evaluation_proof(cs.clone(), share_bits, ids_bits)?;
         Ok(())
     }
