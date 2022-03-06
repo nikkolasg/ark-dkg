@@ -16,7 +16,8 @@ struct BenchResult {
     inner_constraints: usize,
     total_constraints: usize,
     proving: u128,
-    verifying: u128, // useless since no public input so far
+    verifying: u128,
+    verifying_total: u128,
 }
 
 fn main() {
@@ -95,7 +96,7 @@ fn main() {
             let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
             let start = Instant::now();
             let input = vec![circuit.input_commitment()];
-            br.verifying = start.elapsed().as_millis();
+            br.verifying_total = start.elapsed().as_millis();
 
             // TODO make a macro
             let start = Instant::now();
@@ -108,7 +109,9 @@ fn main() {
             ark_groth16::verify_proof(&opvk, &oproof, &input).unwrap();
             // verifying takes into account the time to compute the hashed
             // commitment
-            br.verifying += start.elapsed().as_millis();
+            let verifying = start.elapsed().as_millis();
+            br.verifying += verifying;
+            br.verifying_total += verifying;
             writer
                 .serialize(br)
                 .expect("unable to write results to csv");
