@@ -93,7 +93,10 @@ fn main() {
             };
 
             println!("\tAllocating DKGCircuit final instance...");
+            let start = Instant::now();
             let circuit = DKGCircuit::<I, IV>::new(config, &mut rng).unwrap();
+            br.proving += start.elapsed().as_millis();
+
             let start = Instant::now();
             let input = vec![circuit.input_commitment()];
             br.verifying_total = start.elapsed().as_millis();
@@ -102,7 +105,7 @@ fn main() {
             let start = Instant::now();
             println!("\tProving...");
             let oproof = Groth16::<O>::prove(&opk, circuit, &mut rng).unwrap();
-            br.proving = start.elapsed().as_millis();
+            br.proving += start.elapsed().as_millis();
 
             let start = Instant::now();
             println!("\tVerifying...");
