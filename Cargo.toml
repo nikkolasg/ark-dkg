@@ -23,8 +23,11 @@ ark-serialize = { version = "^0.3.0", default-features = false }
 rayon = "^1.5.1"
 json = "0.12.4"
 lazy_static = "^1.4.0"
+rand = "0.8.5"
 tracing = { version = "0.1", default-features = false, features = [ "attributes" ] }
 tracing-subscriber = { version = "0.2" }
+eyre = "0.6.7"
+
 
 [features]
 default = ["asm", "parallel", "std"]
@@ -47,7 +50,15 @@ ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/", rev = "a2a5ac
 #ark-serialize = { path = "../algebra/serialize" }
 
 [[bench]]
-name = "bench"
-path = "benches/bench.rs"
+name = "naive"
+path = "benches/naive.rs"
 harness = false
-debug = true
+debug = false
+required-features = ["asm","parallel","std"]
+
+[[bench]]
+name = "dkg"
+path = "benches/dkg.rs"
+harness = false
+debug = false
+

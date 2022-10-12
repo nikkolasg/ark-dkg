@@ -23,8 +23,8 @@ struct BenchResult {
 fn main() {
     let mut rng = ark_std::test_rng();
     let mut writer = csv::Writer::from_path("dkg_snark.csv").expect("unable to open csv writer");
-    let n_sizes = vec![5, 50, 100, 500, 800];
-    //let n_sizes = [5];
+    //let n_sizes = vec![5, 50, 100, 500, 800];
+    let n_sizes = [5];
     let params = poseidon::get_bls12377_fq_params(2);
 
     let _values = n_sizes
