@@ -54,6 +54,7 @@ name = "naive"
 path = "benches/naive.rs"
 harness = false
 debug = false
+required-features = ["asm","parallel","std"]
 
 [[bench]]
 name = "dkg"
