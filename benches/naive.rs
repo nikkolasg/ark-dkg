@@ -19,6 +19,7 @@ use eyre::Result;
 use std::marker::PhantomData;
 use std::ops::MulAssign;
 use serde::Serialize;
+use ark_relations::r1cs::ConstraintSystem;
 
 struct InnerGroth16<I: PairingEngine> {
     a: Option<I::Fr>,
@@ -141,7 +142,14 @@ fn main() -> Result<()> {
         )?;
         let inner_proof_time = now.elapsed().as_millis();
         println!(" \t\t\t-> took {} ms",inner_proof_time);
-
+       
+        let number_constraints = { 
+            let circuit = InnerGroth16::<I>::new(n);
+            let cs = ConstraintSystem::<<I as PairingEngine>::Fr>::new_ref();
+            circuit.generate_constraints(cs.clone()).unwrap();
+            cs.num_constraints() as u64
+        };
+        assert_eq!(number_constraints,n,"number of constraints not equal");
 
         print!("\t- Generating setup for outer proof");
         let now = Instant::now();
